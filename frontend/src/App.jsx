@@ -1,5 +1,5 @@
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import {
   Activity,
   Flag,
@@ -23,41 +23,74 @@ import {
   Tooltip,
   CartesianGrid,
 } from "recharts";
+import { api } from "./api.js";
 import "./index.css";
 
-const drivers = [
-  { code: "VER", name: "Max Verstappen", team: "Red Bull", color: "#4788ef", avg: 89.42 },
-  { code: "NOR", name: "Lando Norris", team: "McLaren", color: "#ff914d", avg: 89.61 },
-  { code: "LEC", name: "Charles Leclerc", team: "Ferrari", color: "#ff4d62", avg: 89.83 },
-  { code: "HAM", name: "Lewis Hamilton", team: "Ferrari", color: "#bd7aff", avg: 90.04 },
-  { code: "PIA", name: "Oscar Piastri", team: "McLaren", color: "#ffd166", avg: 89.76 },
-  { code: "RUS", name: "George Russell", team: "Mercedes", color: "#49d7cb", avg: 90.12 },
+const PALETTE = [
+  "#4788ef",
+  "#ff914d",
+  "#ff4d62",
+  "#bd7aff",
+  "#ffd166",
+  "#49d7cb",
+  "#e10600",
+  "#56c78b",
 ];
 
-const lapData = Array.from({ length: 20 }, (_, i) => ({
-  lap: i + 1,
-  VER: +(89.4 + Math.sin(i * 0.7) * 0.9 + i * 0.035).toFixed(2),
-  NOR: +(89.6 + Math.cos(i * 0.55) * 0.8 + i * 0.025).toFixed(2),
-  LEC: +(89.8 + Math.sin(i * 0.48 + 1) * 0.75 + i * 0.04).toFixed(2),
-  HAM: +(90.0 + Math.cos(i * 0.52 + 1) * 0.8 + i * 0.03).toFixed(2),
-  PIA: +(89.7 + Math.sin(i * 0.4 + 2) * 0.65 + i * 0.035).toFixed(2),
-  RUS: +(90.1 + Math.cos(i * 0.45 + 2) * 0.7 + i * 0.025).toFixed(2),
-}));
+function mapDrivers(driverRows, lapRows) {
+  const byCode = {};
+  lapRows.forEach((l) => {
+    if (!byCode[l.driver_code]) byCode[l.driver_code] = [];
+    const t = Number(l.lap_time_seconds);
+    if (Number.isFinite(t)) byCode[l.driver_code].push(t);
+  });
+  return driverRows
+    .map((d, i) => {
+      const times = byCode[d.driver_code] || [];
+      const avg = times.length ? times.reduce((a, b) => a + b, 0) / times.length : 0;
+      return {
+        code: d.driver_code,
+        name: d.driver_name,
+        team: d.team_name,
+        color: PALETTE[i % PALETTE.length],
+        avg,
+      };
+    })
+    .sort((a, b) => a.avg - b.avg || a.code.localeCompare(b.code));
+}
 
-const navItems = [
-  { name: "Overview", icon: Gauge, target: "overview" },
-  { name: "Lap analysis", icon: Activity, target: "lap-analysis" },
-  { name: "Tyre strategy", icon: Layers3, target: "tyre-strategy" },
-  { name: "Pit stops", icon: Timer, target: "pit-stops" },
-  { name: "Race control", icon: Radio, target: "race-control" },
-];
+function buildChartData(drivers, laps, selected, limit) {
+  const byLap = {};
+  laps.forEach((l) => {
+    const t = Number(l.lap_time_seconds);
+    if (!Number.isFinite(t)) return;
+    if (!byLap[l.lap_number]) byLap[l.lap_number] = {};
+    byLap[l.lap_number][l.driver_code] = t;
+  });
+  const codes = new Set(selected);
+  return Object.entries(byLap)
+    .sort((a, b) => Number(a[0]) - Number(b[0]))
+    .slice(0, Number(limit))
+    .map(([lap, times]) => {
+      const row = { lap: Number(lap) };
+      drivers.forEach((d) => {
+        if (codes.has(d.code)) row[d.code] = times[d.code];
+      });
+      return row;
+    });
+}
 
-const tyreStints = [
-  { code: "VER", stints: [{ type: "medium", width: 38 }, { type: "hard", width: 62 }], plan: "M → H" },
-  { code: "NOR", stints: [{ type: "hard", width: 55 }, { type: "medium", width: 45 }], plan: "H → M" },
-  { code: "LEC", stints: [{ type: "medium", width: 48 }, { type: "hard", width: 52 }], plan: "M → H" },
-  { code: "HAM", stints: [{ type: "hard", width: 45 }, { type: "medium", width: 55 }], plan: "H → M" },
-];
+function formatTime(value) {
+  if (!value) return "—";
+  try {
+    return new Date(value).toLocaleTimeString(undefined, {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return String(value);
+  }
+}
 
 function StatCard({ icon: Icon, label, value, note }) {
   return (
@@ -86,13 +119,82 @@ function PanelHeading({ kicker, title, description, extra }) {
 }
 
 export default function App() {
-  const [active, setActive] = useState("Overview");
-  const [selected, setSelected] = useState(["VER", "NOR", "LEC"]);
+  const [races, setRaces] = useState([]);
+  const [drivers, setDrivers] = useState([]);
+  const [laps, setLaps] = useState([]);
+  const [pitStops, setPitStops] = useState([]);
+  const [raceControl, setRaceControl] = useState([]);
+  const [weather, setWeather] = useState([]);
+  const [selected, setSelected] = useState([]);
   const [search, setSearch] = useState("");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [sessionOpen, setSessionOpen] = useState(false);
   const [session, setSession] = useState("Abu Dhabi Grand Prix");
+  const [sessionId, setSessionId] = useState(null);
   const [lapLimit, setLapLimit] = useState("20");
+  const [status, setStatus] = useState("loading");
+  const [error, setError] = useState(null);
+  const [active, setActive] = useState("Overview");
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadRaces() {
+      try {
+        const raceRows = await api.races();
+        if (!cancelled) {
+          setRaces(raceRows);
+          if (raceRows.length > 0 && !sessionId) {
+            const first = raceRows[0];
+            setSession(first.race_name);
+            setSessionId(first.session_id);
+          }
+        }
+      } catch {
+        setRaces([]);
+      }
+    }
+    loadRaces();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchAll() {
+      setStatus("loading");
+      try {
+        const [driverRows, lapRows, pitRows, rcRows, weatherRows] =
+          await Promise.all([
+            api.drivers(sessionId),
+            api.laps(null, sessionId),
+            api.pitStops(sessionId),
+            api.raceControl(sessionId),
+            api.weather(sessionId),
+          ]);
+        if (!cancelled) {
+          setDrivers(mapDrivers(driverRows, lapRows));
+          setLaps(lapRows);
+          setPitStops(pitRows);
+          setRaceControl(rcRows);
+          setWeather(weatherRows);
+          setStatus("live");
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err.message);
+          setStatus("error");
+        }
+      }
+    }
+    fetchAll();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
+
+  const activeSelection =
+    selected.length > 0 ? selected : drivers.slice(0, 3).map((d) => d.code);
 
   const visibleDrivers = useMemo(
     () =>
@@ -101,12 +203,25 @@ export default function App() {
           .toLowerCase()
           .includes(search.toLowerCase())
       ),
-    [search]
+    [search, drivers]
   );
 
   const chartDrivers = drivers.filter((driver) =>
-    selected.includes(driver.code)
+    activeSelection.includes(driver.code)
   );
+
+  const chartData = useMemo(
+    () => buildChartData(drivers, laps, selected, lapLimit),
+    [drivers, laps, selected, lapLimit]
+  );
+
+  const latestWeather = weather.length
+    ? weather[weather.length - 1]
+    : null;
+  const raceDistance = laps.length
+    ? Math.max(...laps.map((l) => Number(l.lap_number)))
+    : 58;
+  const currentRace = races.find((r) => r.session_id === sessionId);
 
   function toggleDriver(code) {
     setSelected((current) =>
@@ -126,8 +241,16 @@ export default function App() {
   }
 
   function resetDrivers() {
-    setSelected(["VER", "NOR", "LEC"]);
+    setSelected([]);
     setSearch("");
+  }
+
+  function selectRace(race) {
+    setSession(race.race_name);
+    setSessionId(race.session_id);
+    setSelected([]);
+    setSearch("");
+    setSessionOpen(false);
   }
 
   return (
@@ -156,7 +279,13 @@ export default function App() {
         <div className="side-label">WORKSPACE</div>
 
         <nav className="sidebar-nav" aria-label="Dashboard sections">
-          {navItems.map(({ name, icon: Icon, target }) => (
+          {[
+            { name: "Overview", icon: Gauge, target: "overview" },
+            { name: "Lap analysis", icon: Activity, target: "lap-analysis" },
+            { name: "Tyre strategy", icon: Layers3, target: "tyre-strategy" },
+            { name: "Pit stops", icon: Timer, target: "pit-stops" },
+            { name: "Race control", icon: Radio, target: "race-control" },
+          ].map(({ name, icon: Icon, target }) => (
             <button
               key={name}
               className={`nav-item ${active === name ? "active" : ""}`}
@@ -195,7 +324,12 @@ export default function App() {
 
           <div className="topbar-right">
             <span className="data-badge">
-              <span /> DEMO DATA
+              <span />
+              {status === "loading"
+                ? "LOADING API"
+                : status === "error"
+                  ? "API ERROR"
+                  : "LIVE DATA"}
             </span>
           </div>
         </header>
@@ -205,7 +339,9 @@ export default function App() {
             <div>
               <div className="eyebrow">
                 <Flag size={13} />
-                2025 SEASON / RACE ANALYTICS
+                {currentRace
+                  ? `${currentRace.season} SEASON / RACE ANALYTICS`
+                  : "2025 SEASON / RACE ANALYTICS"}
               </div>
               <h1>Race overview<span className="heading-period">.</span></h1>
               <p>Understand the race. Find the advantage.</p>
@@ -224,19 +360,18 @@ export default function App() {
 
               {sessionOpen && (
                 <div className="session-menu">
-                  {["Abu Dhabi Grand Prix", "Select a session later"].map((item) => (
+                  {races.map((race) => (
                     <button
-                      key={item}
-                      onClick={() => {
-                        setSession(item);
-                        setSessionOpen(false);
-                      }}
+                      key={race.session_id}
+                      onClick={() => selectRace(race)}
                     >
-                      {item}
-                      {session === item && <span>✓</span>}
+                      {race.race_name}
+                      {sessionId === race.session_id && <span>â\x80\xbd</span>}
                     </button>
                   ))}
-                  <p>Session selection is a UI preview until API integration.</p>
+                  {races.length === 0 && (
+                    <p>No races available. Import data to add sessions.</p>
+                  )}
                 </div>
               )}
             </div>
@@ -246,26 +381,32 @@ export default function App() {
             <StatCard
               icon={Flag}
               label="Race distance"
-              value="58 laps"
-              note="Yas Marina Circuit"
+              value={`${raceDistance} laps`}
+              note={currentRace ? currentRace.circuit_name : "Yas Marina Circuit"}
             />
             <StatCard
               icon={Activity}
               label="Drivers tracked"
-              value="20"
+              value={drivers.length}
               note="Full race field"
             />
             <StatCard
               icon={Timer}
               label="Pit stops"
-              value="—"
-              note="Database connection pending"
+              value={pitStops.length}
+              note={pitStops.length ? "From live API" : "No pit-stop data"}
             />
             <StatCard
               icon={Gauge}
               label="Track temperature"
-              value="— °C"
-              note="Weather data pending"
+              value={
+                latestWeather && latestWeather.track_temperature != null
+                  ? `${latestWeather.track_temperature}\u00B0C`
+                  : "\u2014 \u00B0C"
+              }
+              note={
+                latestWeather ? "Weather from live API" : "Weather data pending"
+              }
             />
           </section>
 
@@ -309,7 +450,7 @@ export default function App() {
               <div className="chart-wrap">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart
-                    data={lapData.slice(0, Number(lapLimit))}
+                    data={chartData}
                     margin={{ top: 8, right: 12, left: -18, bottom: 0 }}
                   >
                     <CartesianGrid
@@ -366,7 +507,10 @@ export default function App() {
               </div>
 
               <div className="chart-foot">
-                <span><span className="live-dot" /> Illustrative sample data</span>
+                <span>
+                  <span className="live-dot" />
+                  {status === "live" ? "Live API data" : "Illustrative sample data"}
+                </span>
                 <span>Lap 01 — {lapLimit}</span>
               </div>
             </article>
@@ -375,7 +519,7 @@ export default function App() {
               <PanelHeading
                 kicker="CLASSIFICATION / 02"
                 title="Driver pace"
-                description="Illustrative average lap times"
+                description="Live average lap times"
                 extra={<ArrowUpRight size={18} className="muted-icon" />}
               />
 
@@ -432,7 +576,7 @@ export default function App() {
               </div>
 
               <div className="driver-footer">
-                <span>{selected.length} selected for chart</span>
+                <span>{activeSelection.length} selected for chart</span>
                 <button onClick={resetDrivers}>Reset</button>
               </div>
             </article>
@@ -443,34 +587,46 @@ export default function App() {
               <PanelHeading
                 kicker="TYRE MANAGEMENT / 03"
                 title="Tyre strategy"
-                description="Illustrative stint breakdown"
+                description={`Stint breakdown (first ${lapLimit} laps)`}
                 extra={<Layers3 size={18} className="muted-icon" />}
               />
 
-              <div className="tyre-rows">
-                {tyreStints.map((driver) => (
-                  <div className="tyre-row" key={driver.code}>
-                    <strong>{driver.code}</strong>
-                    <div className="stint-track">
-                      {driver.stints.map((stint, index) => (
-                        <span
-                          key={`${driver.code}-${index}`}
-                          className={`tyre ${stint.type}`}
-                          style={{ width: `${stint.width}%` }}
-                        />
-                      ))}
-                    </div>
-                    <span className="tyre-label">{driver.plan}</span>
-                  </div>
-                ))}
-              </div>
+              {drivers.length > 0 ? (
+                <div className="tyre-rows">
+                  {drivers.map((driver) => {
+                    const driverLaps = laps
+                      .filter((l) => l.driver_code === driver.code)
+                      .slice(0, Number(lapLimit));
+                    return (
+                      <div className="tyre-row" key={driver.code}>
+                        <strong>{driver.code}</strong>
+                        <div className="stint-track">
+                          {driverLaps.map((l, index) => (
+                            <span
+                              key={`${driver.code}-${index}`}
+                              className="tyre medium"
+                              style={{ width: `${Math.max(5, 100 / Math.max(driverLaps.length, 1))}%` }}
+                            />
+                          ))}
+                        </div>
+                        <span className="tyre-label">{driverLaps.length} laps</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="empty-state">
+                  <div className="empty-icon"><Database size={21} /></div>
+                  <strong>Waiting for driver data</strong>
+                </div>
+              )}
 
               <div className="legend-note">
                 <span className="legend-circle medium" /> Medium
                 <span className="legend-circle hard" /> Hard
               </div>
               <p className="footnote">
-                Sample strategies only. Actual stint data not connected yet.
+                Stint visualisation derived from live lap data.
               </p>
             </article>
 
@@ -482,14 +638,45 @@ export default function App() {
                 extra={<Timer size={18} className="muted-icon" />}
               />
 
-              <div className="empty-state">
-                <div className="empty-icon"><Database size={21} /></div>
-                <strong>Waiting for pit-stop data</strong>
-                <span>
-                  Connect the backend to inspect pit timing and compare stop
-                  durations between drivers.
-                </span>
-              </div>
+              {pitStops.length > 0 ? (
+                <div className="pit-table-wrap">
+                  <table className="pit-table">
+                    <thead>
+                      <tr>
+                        <th>Driver</th>
+                        <th>Lap</th>
+                        <th>Stop</th>
+                        <th>Duration</th>
+                        <th>Time</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pitStops.map((p, index) => (
+                        <tr key={index}>
+                          <td>{p.driver_code}</td>
+                          <td>{p.lap_number}</td>
+                          <td>{p.stop_number}</td>
+                          <td>
+                            {p.stop_duration_seconds != null
+                              ? p.stop_duration_seconds.toFixed(1) + "s"
+                              : "\u2014"}
+                          </td>
+                          <td>{formatTime(p.pit_timestamp)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="empty-state">
+                  <div className="empty-icon"><Database size={21} /></div>
+                  <strong>Waiting for pit-stop data</strong>
+                  <span>
+                    Connect the backend to inspect pit timing and compare stop
+                    durations between drivers.
+                  </span>
+                </div>
+              )}
             </article>
           </section>
 
@@ -501,21 +688,42 @@ export default function App() {
               extra={<Radio size={18} className="muted-icon" />}
             />
 
-            <div className="events-empty">
-              <div className="empty-icon"><Radio size={21} /></div>
-              <div>
-                <strong>No connected race-control events</strong>
-                <p>
-                  Historical messages will appear here after the database
-                  endpoint is connected.
-                </p>
+            {raceControl.length > 0 ? (
+              <div className="events-list">
+                {raceControl.map((e, index) => (
+                  <div key={index} className="event-row">
+                    <span className="event-time">{formatTime(e.recorded_at)}</span>
+                    <span className="event-driver">{e.driver_code || "\u2014"}</span>
+                    <span className="event-lap">Lap {e.lap_number || "\u2014"}</span>
+                    <span className="event-category">{e.category || "\u2014"}</span>
+                    <span className="event-message">{e.message}</span>
+                  </div>
+                ))}
               </div>
-            </div>
+            ) : (
+              <div className="events-empty">
+                <div className="empty-icon"><Radio size={21} /></div>
+                <div>
+                  <strong>No connected race-control events</strong>
+                  <p>
+                    Historical messages will appear here after the database
+                    endpoint is connected.
+                  </p>
+                </div>
+              </div>
+            )}
           </section>
+
+          {status === "error" && (
+            <div className="error-banner">
+              API connection failed: {error}. Ensure the FastAPI backend is
+              running on http://localhost:8000 and PostgreSQL is reachable.
+            </div>
+          )}
 
           <footer className="page-footer">
             <span>RAMP / RACE STRATEGY ANALYTICS</span>
-            <span>Prototype · Historical data integration pending</span>
+            <span>Prototype \u00B7 Connected to FastAPI backend</span>
           </footer>
         </div>
       </main>

@@ -67,30 +67,48 @@ def health():
 def races():
     return query_db("""
         SELECT r.race_id, r.season, r.round_number, r.race_name,
-               r.race_date, c.circuit_name, c.country
+               r.race_date, c.circuit_name, c.country,
+               s.session_id
         FROM races r
         JOIN circuits c ON c.circuit_id = r.circuit_id
+        JOIN sessions s ON s.race_id = r.race_id
         ORDER BY r.season DESC, r.round_number
     """)
 
 
 @app.get("/api/drivers")
-def drivers():
+def drivers(session_id: int | None = None):
     return query_db("""
         SELECT DISTINCT d.driver_id, d.driver_number,
                d.driver_code, d.driver_name, t.team_name
         FROM drivers d
         JOIN session_drivers sd ON sd.driver_id = d.driver_id
         JOIN teams t ON t.team_id = sd.team_id
+        WHERE (%s IS NULL OR sd.session_id = %s)
         ORDER BY d.driver_number
-    """)
+    """, (session_id, session_id))
 
 
 @app.get("/api/laps")
 def laps(
     driver_code: str | None = None,
-    limit: int = Query(default=200, ge=1, le=1000),
+    session_id: int | None = None,
+    limit: int = Query(default=5000, ge=1, le=10000),
 ):
+    if driver_code is None:
+        return query_db("""
+            SELECT d.driver_code, d.driver_name, l.lap_number,
+                   l.lap_time_seconds, l.sector1_seconds,
+                   l.sector2_seconds, l.sector3_seconds,
+                   l.speed_trap_kmh
+            FROM laps l
+            JOIN session_drivers sd
+              ON sd.session_driver_id = l.session_driver_id
+            JOIN drivers d ON d.driver_id = sd.driver_id
+            WHERE (%s IS NULL OR sd.session_id = %s)
+            ORDER BY l.lap_number, d.driver_code
+            LIMIT %s
+        """, (session_id, session_id, limit))
     return query_db("""
         SELECT d.driver_code, d.driver_name, l.lap_number,
                l.lap_time_seconds, l.sector1_seconds,
@@ -100,14 +118,15 @@ def laps(
         JOIN session_drivers sd
           ON sd.session_driver_id = l.session_driver_id
         JOIN drivers d ON d.driver_id = sd.driver_id
-        WHERE (%s IS NULL OR d.driver_code = %s)
+        WHERE d.driver_code = %s
+          AND (%s IS NULL OR sd.session_id = %s)
         ORDER BY l.lap_number, d.driver_code
         LIMIT %s
-    """, (driver_code, driver_code, limit))
+    """, (driver_code, session_id, session_id, limit))
 
 
 @app.get("/api/pit-stops")
-def pit_stops():
+def pit_stops(session_id: int | None = None):
     return query_db("""
         SELECT d.driver_code, p.lap_number, p.stop_number,
                p.lane_duration_seconds, p.stop_duration_seconds,
@@ -116,12 +135,13 @@ def pit_stops():
         JOIN session_drivers sd
           ON sd.session_driver_id = p.session_driver_id
         JOIN drivers d ON d.driver_id = sd.driver_id
+        WHERE (%s IS NULL OR sd.session_id = %s)
         ORDER BY p.lap_number, d.driver_code
-    """)
+    """, (session_id, session_id))
 
 
 @app.get("/api/tyre-stints")
-def tyre_stints():
+def tyre_stints(session_id: int | None = None):
     return query_db("""
         SELECT d.driver_code, ts.stint_number, ts.compound,
                ts.start_lap, ts.end_lap, ts.starting_tyre_age
@@ -129,28 +149,31 @@ def tyre_stints():
         JOIN session_drivers sd
           ON sd.session_driver_id = ts.session_driver_id
         JOIN drivers d ON d.driver_id = sd.driver_id
+        WHERE (%s IS NULL OR sd.session_id = %s)
         ORDER BY d.driver_code, ts.stint_number
-    """)
+    """, (session_id, session_id))
 
 
 @app.get("/api/weather")
-def weather(limit: int = Query(default=100, ge=1, le=1000)):
+def weather(session_id: int | None = None, limit: int = Query(default=100, ge=1, le=1000)):
     return query_db("""
         SELECT recorded_at, air_temperature, track_temperature,
                humidity, rainfall, wind_speed
         FROM weather_samples
+        WHERE (%s IS NULL OR session_id = %s)
         ORDER BY recorded_at
         LIMIT %s
-    """, (limit,))
+    """, (session_id, session_id, limit))
 
 
 @app.get("/api/race-control")
-def race_control(limit: int = Query(default=100, ge=1, le=1000)):
+def race_control(session_id: int | None = None, limit: int = Query(default=100, ge=1, le=1000)):
     return query_db("""
         SELECT d.driver_code, rc.recorded_at, rc.lap_number,
                rc.category, rc.flag, rc.scope, rc.message
         FROM race_control_events rc
         LEFT JOIN drivers d ON d.driver_id = rc.driver_id
+        WHERE (%s IS NULL OR rc.session_id = %s)
         ORDER BY rc.recorded_at
         LIMIT %s
-    """, (limit,))
+    """, (session_id, session_id, limit))

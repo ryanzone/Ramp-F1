@@ -89,7 +89,8 @@ def drivers():
 @app.get("/api/laps")
 def laps(
     driver_code: str | None = None,
-    limit: int = Query(default=200, ge=1, le=1000),
+    session_id: int | None = None,
+    limit: int = Query(default=5000, ge=1, le=10000),
 ):
     return query_db("""
         SELECT d.driver_code, d.driver_name, l.lap_number,
@@ -101,9 +102,10 @@ def laps(
           ON sd.session_driver_id = l.session_driver_id
         JOIN drivers d ON d.driver_id = sd.driver_id
         WHERE (%s IS NULL OR d.driver_code = %s)
+          AND (%s IS NULL OR sd.session_id = %s)
         ORDER BY l.lap_number, d.driver_code
         LIMIT %s
-    """, (driver_code, driver_code, limit))
+    """, (driver_code, driver_code, session_id, session_id, limit))
 
 
 @app.get("/api/pit-stops")
