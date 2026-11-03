@@ -37,33 +37,40 @@ const PALETTE = [
   "#56c78b",
 ];
 
-function mapDrivers(driverRows, lapRows) {
+function mapDrivers(driverRows, lapRows, resultRows = []) {
   const byCode = {};
   lapRows.forEach((l) => {
-    if (!byCode[l.driver_code]) byCode[l.driver_code] = [];
     const t = Number(l.lap_time_seconds);
-    if (Number.isFinite(t)) byCode[l.driver_code].push(t);
+    const valid = l.is_valid !== false && Number.isFinite(t) && t > 0 && t < 300;
+    if (!valid) return;
+    if (!byCode[l.driver_code]) byCode[l.driver_code] = [];
+    byCode[l.driver_code].push(t);
+  });
+  const statusByCode = {};
+  resultRows.forEach((r) => {
+    if (r.driver_code && r.status) statusByCode[r.driver_code] = String(r.status).toUpperCase();
   });
   return driverRows
     .map((d, i) => {
       const times = byCode[d.driver_code] || [];
-      const avg = times.length ? times.reduce((a, b) => a + b, 0) / times.length : 0;
+      const avg = times.length ? times.reduce((a, b) => a + b, 0) / times.length : null;
       return {
         code: d.driver_code,
         name: d.driver_name,
         team: d.team_name,
         color: PALETTE[i % PALETTE.length],
         avg,
+        status: statusByCode[d.driver_code] || null,
       };
     })
-    .sort((a, b) => a.avg - b.avg || a.code.localeCompare(b.code));
+    .sort((a, b) => (a.avg == null ? 1 : b.avg == null ? -1 : a.avg - b.avg) || a.code.localeCompare(b.code));
 }
 
 function buildChartData(drivers, laps, selected, limit) {
   const byLap = {};
   laps.forEach((l) => {
     const t = Number(l.lap_time_seconds);
-    if (!Number.isFinite(t)) return;
+    if (l.is_valid === false || !Number.isFinite(t) || t <= 0 || t >= 300) return;
     if (!byLap[l.lap_number]) byLap[l.lap_number] = {};
     byLap[l.lap_number][l.driver_code] = t;
   });
@@ -123,13 +130,14 @@ export default function App() {
   const [drivers, setDrivers] = useState([]);
   const [laps, setLaps] = useState([]);
   const [pitStops, setPitStops] = useState([]);
+  const [tyreStints, setTyreStints] = useState([]);
   const [raceControl, setRaceControl] = useState([]);
   const [weather, setWeather] = useState([]);
   const [selected, setSelected] = useState([]);
   const [search, setSearch] = useState("");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [sessionOpen, setSessionOpen] = useState(false);
-  const [session, setSession] = useState("Abu Dhabi Grand Prix");
+  const [session, setSession] = useState("Select a race");
   const [sessionId, setSessionId] = useState(null);
   const [lapLimit, setLapLimit] = useState("20");
   const [status, setStatus] = useState("loading");
@@ -164,18 +172,18 @@ export default function App() {
     async function fetchAll() {
       setStatus("loading");
       try {
-        const [driverRows, lapRows, pitRows, rcRows, weatherRows] =
-          await Promise.all([
-            api.drivers(sessionId),
-            api.laps(null, sessionId),
-            api.pitStops(sessionId),
-            api.raceControl(sessionId),
-            api.weather(sessionId),
-          ]);
+        const settled = await Promise.allSettled([
+          api.drivers(sessionId), api.laps(null, sessionId), api.pitStops(sessionId),
+          api.raceControl(sessionId), api.weather(sessionId), api.tyreStints(sessionId), api.results(sessionId),
+        ]);
+        const [driverRows, lapRows, pitRows, rcRows, weatherRows, stintRows, resultRows] = settled.map(
+          (r) => r.status === "fulfilled" ? r.value : []
+        );
         if (!cancelled) {
-          setDrivers(mapDrivers(driverRows, lapRows));
+          setDrivers(mapDrivers(driverRows, lapRows, resultRows));
           setLaps(lapRows);
           setPitStops(pitRows);
+          setTyreStints(stintRows);
           setRaceControl(rcRows);
           setWeather(weatherRows);
           setStatus("live");
@@ -211,17 +219,23 @@ export default function App() {
   );
 
   const chartData = useMemo(
-    () => buildChartData(drivers, laps, selected, lapLimit),
-    [drivers, laps, selected, lapLimit]
+    () => buildChartData(drivers, laps, activeSelection, lapLimit),
+    [drivers, laps, activeSelection, lapLimit]
+  );
+
+  const currentRace = races.find(
+    (r) => Number(r.session_id) === Number(sessionId)
   );
 
   const latestWeather = weather.length
     ? weather[weather.length - 1]
     : null;
-  const raceDistance = laps.length
-    ? Math.max(...laps.map((l) => Number(l.lap_number)))
-    : 58;
-  const currentRace = races.find((r) => r.session_id === sessionId);
+
+  const raceDistance =
+    currentRace?.race_distance_laps ||
+    (laps.length
+      ? Math.max(...laps.map((l) => Number(l.lap_number)))
+      : null);
 
   function toggleDriver(code) {
     setSelected((current) =>
@@ -326,10 +340,10 @@ export default function App() {
             <span className="data-badge">
               <span />
               {status === "loading"
-                ? "LOADING API"
+                ? "LOADING DATA"
                 : status === "error"
                   ? "API ERROR"
-                  : "LIVE DATA"}
+                  : "HISTORICAL DATA"}
             </span>
           </div>
         </header>
@@ -381,8 +395,8 @@ export default function App() {
             <StatCard
               icon={Flag}
               label="Race distance"
-              value={`${raceDistance} laps`}
-              note={currentRace ? currentRace.circuit_name : "Yas Marina Circuit"}
+              value={raceDistance ? `${raceDistance} laps` : "—"}
+              note={currentRace?.circuit_name || "Circuit unavailable"}
             />
             <StatCard
               icon={Activity}
@@ -394,7 +408,7 @@ export default function App() {
               icon={Timer}
               label="Pit stops"
               value={pitStops.length}
-              note={pitStops.length ? "From live API" : "No pit-stop data"}
+              note={pitStops.length ? "Historical session data" : "No pit-stop records"}
             />
             <StatCard
               icon={Gauge}
@@ -405,7 +419,7 @@ export default function App() {
                   : "\u2014 \u00B0C"
               }
               note={
-                latestWeather ? "Weather from live API" : "Weather data pending"
+                latestWeather ? "Historical weather data" : "Weather unavailable"
               }
             />
           </section>
@@ -509,7 +523,7 @@ export default function App() {
               <div className="chart-foot">
                 <span>
                   <span className="live-dot" />
-                  {status === "live" ? "Live API data" : "Illustrative sample data"}
+                  {status === "live" ? "Historical API data" : "No data available"}
                 </span>
                 <span>Lap 01 — {lapLimit}</span>
               </div>
@@ -519,7 +533,7 @@ export default function App() {
               <PanelHeading
                 kicker="CLASSIFICATION / 02"
                 title="Driver pace"
-                description="Live average lap times"
+                description="Average valid lap times"
                 extra={<ArrowUpRight size={18} className="muted-icon" />}
               />
 
@@ -562,9 +576,9 @@ export default function App() {
                       <strong>{driver.code}</strong>
                       <small>{driver.name}</small>
                     </span>
-                    <span className="driver-time">
-                      {driver.avg.toFixed(2)}<small>s</small>
-                    </span>
+                      <span className="driver-time">
+                        {driver.avg == null ? (["DNF", "DNS", "DSQ"].includes(driver.status) ? driver.status : "—") : driver.avg.toFixed(2)}{driver.avg == null || ["DNF", "DNS", "DSQ"].includes(driver.status) ? null : <small>s</small>}
+                      </span>
                   </button>
                 ))}
                 {visibleDrivers.length === 0 && (
@@ -591,43 +605,35 @@ export default function App() {
                 extra={<Layers3 size={18} className="muted-icon" />}
               />
 
-              {drivers.length > 0 ? (
+              {tyreStints.length > 0 ? (
                 <div className="tyre-rows">
                   {drivers.map((driver) => {
-                    const driverLaps = laps
-                      .filter((l) => l.driver_code === driver.code)
-                      .slice(0, Number(lapLimit));
-                    return (
-                      <div className="tyre-row" key={driver.code}>
-                        <strong>{driver.code}</strong>
-                        <div className="stint-track">
-                          {driverLaps.map((l, index) => (
-                            <span
-                              key={`${driver.code}-${index}`}
-                              className="tyre medium"
-                              style={{ width: `${Math.max(5, 100 / Math.max(driverLaps.length, 1))}%` }}
-                            />
-                          ))}
-                        </div>
-                        <span className="tyre-label">{driverLaps.length} laps</span>
+                    const stints = tyreStints.filter((st) => st.driver_code === driver.code && st.start_lap != null && st.end_lap != null);
+                    const total = stints.reduce((sum, st) => sum + Math.max(0, Number(st.end_lap) - Number(st.start_lap) + 1), 0);
+                    if (!stints.length) return null;
+                    return <div className="tyre-row" key={driver.code}>
+                      <strong>{driver.code}</strong>
+                      <div className="stint-track">
+                        {stints.map((st) => {
+                          const compound = String(st.compound || "unknown").toLowerCase();
+                          const width = total ? (Math.max(0, Number(st.end_lap)-Number(st.start_lap)+1) / total) * 100 : 0;
+                          return <span key={`${driver.code}-${st.stint_number}`} title={`${st.compound || "Unknown"}: laps ${st.start_lap}-${st.end_lap}`} className={`tyre ${compound}`} style={{width: `${width}%`}} />;
+                        })}
                       </div>
-                    );
+                      <span className="tyre-label">{total} laps</span>
+                    </div>;
                   })}
                 </div>
-              ) : (
-                <div className="empty-state">
-                  <div className="empty-icon"><Database size={21} /></div>
-                  <strong>Waiting for driver data</strong>
-                </div>
-              )}
+              ) : <div className="empty-state"><div className="empty-icon"><Database size={21} /></div><strong>Tyre data unavailable</strong><span>Import OpenF1 stint records for this session.</span></div>}
 
               <div className="legend-note">
+                <span className="legend-circle soft" /> Soft
                 <span className="legend-circle medium" /> Medium
                 <span className="legend-circle hard" /> Hard
+                <span className="legend-circle intermediate" /> Inter
+                <span className="legend-circle wet" /> Wet
               </div>
-              <p className="footnote">
-                Stint visualisation derived from live lap data.
-              </p>
+              <p className="footnote">Actual tyre stints from the selected historical session.</p>
             </article>
 
             <article className="panel pit-panel" id="pit-stops">
@@ -704,11 +710,8 @@ export default function App() {
               <div className="events-empty">
                 <div className="empty-icon"><Radio size={21} /></div>
                 <div>
-                  <strong>No connected race-control events</strong>
-                  <p>
-                    Historical messages will appear here after the database
-                    endpoint is connected.
-                  </p>
+                  <strong>No race-control records for this session</strong>
+                  <p>Import historical OpenF1 race-control messages to populate this panel.</p>
                 </div>
               </div>
             )}

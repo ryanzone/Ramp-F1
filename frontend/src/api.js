@@ -20,6 +20,7 @@ export const api = {
   health: () => request("/api/health"),
   races: () => request("/api/races"),
   drivers: (sessionId) => request("/api/drivers", { session_id: sessionId }),
+  results: (sessionId) => request("/api/results", { session_id: sessionId }),
   laps: (driverCode, sessionId) =>
     request("/api/laps", { driver_code: driverCode, session_id: sessionId }),
   pitStops: (sessionId) => request("/api/pit-stops", { session_id: sessionId }),
