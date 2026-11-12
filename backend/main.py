@@ -17,9 +17,11 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        # Optional extra dev origins, e.g. CORS_ORIGINS=http://localhost:5174
+        *[o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()],
     ],
     allow_credentials=False,
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["*"],
 )
 
@@ -247,3 +249,13 @@ def race_control(
         ORDER BY rc.recorded_at
         LIMIT %s
     """, (session_id, session_id, limit))
+
+
+# Historical replay + time-aware SQL analytics (additive; the /api/* endpoints above are unchanged).
+from backend.replay_routes import router as replay_router, ws_router as replay_ws_router  # noqa: E402
+from backend.analytics_routes import router as analytics_router, ws_router as analytics_ws_router  # noqa: E402
+
+app.include_router(replay_router)
+app.include_router(replay_ws_router)
+app.include_router(analytics_router)
+app.include_router(analytics_ws_router)

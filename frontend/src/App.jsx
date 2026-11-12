@@ -13,6 +13,9 @@ import {
   Menu,
   X,
   Database,
+  Play,
+  BarChart3,
+  Video,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -24,7 +27,18 @@ import {
   CartesianGrid,
 } from "recharts";
 import { api } from "./api.js";
+import { standings, teamColor } from "./replayModel.js";
+import { useReplay } from "./useReplay.js";
+import { useAnalytics } from "./useAnalytics.js";
+import { useVideoSync } from "./useVideoSync.js";
+import BroadcastStage from "./BroadcastStage.jsx";
+import ReplayControls from "./ReplayControls.jsx";
+import RaceOverview from "./RaceOverview.jsx";
+import SqlAnalytics from "./SqlAnalytics.jsx";
+import VisualAnalytics from "./VisualAnalytics.jsx";
+import VideoSync from "./VideoSync.jsx";
 import "./index.css";
+import "./Replay.css";
 
 const PALETTE = [
   "#4788ef",
@@ -127,12 +141,15 @@ function PanelHeading({ kicker, title, description, extra }) {
 
 export default function App() {
   const [races, setRaces] = useState([]);
-  const [drivers, setDrivers] = useState([]);
-  const [laps, setLaps] = useState([]);
-  const [pitStops, setPitStops] = useState([]);
-  const [tyreStints, setTyreStints] = useState([]);
-  const [raceControl, setRaceControl] = useState([]);
-  const [weather, setWeather] = useState([]);
+  // Whole-race data from the REST API. While a replay is running, the names below
+  // (drivers, laps, pitStops, ...) switch to what the replay clock has released so far.
+  const [apiDriverRows, setApiDriverRows] = useState([]);
+  const [apiResultRows, setApiResultRows] = useState([]);
+  const [apiLaps, setApiLaps] = useState([]);
+  const [apiPitStops, setApiPitStops] = useState([]);
+  const [apiTyreStints, setApiTyreStints] = useState([]);
+  const [apiRaceControl, setApiRaceControl] = useState([]);
+  const [apiWeather, setApiWeather] = useState([]);
   const [selected, setSelected] = useState([]);
   const [search, setSearch] = useState("");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -143,6 +160,54 @@ export default function App() {
   const [status, setStatus] = useState("loading");
   const [error, setError] = useState(null);
   const [active, setActive] = useState("Overview");
+
+  const replay = useReplay();
+  const replayLive = replay.active;
+  const laps = replayLive ? replay.rows.laps : apiLaps;
+  const pitStops = replayLive ? replay.rows.pits : apiPitStops;
+  const tyreStints = replayLive ? replay.rows.stints : apiTyreStints;
+  const raceControl = replayLive ? replay.rows.raceControl : apiRaceControl;
+  const weather = replayLive ? replay.rows.weather : apiWeather;
+  // Final results (DNF/DSQ) are a future outcome, so they are not shown during a replay.
+  const drivers = useMemo(
+    () => mapDrivers(apiDriverRows, laps, replayLive ? [] : apiResultRows),
+    [apiDriverRows, laps, replayLive, apiResultRows],
+  );
+  const leaders = useMemo(
+    () => standings(replay.store, replay.drivers).filter((r) => r.position != null).slice(0, 2).map((r) => r.code),
+    [replay.store, replay.drivers],
+  );
+  const teamColors = useMemo(
+    () => Object.fromEntries(replay.drivers.map((d) => [d.code, teamColor(d.team)])),
+    [replay.drivers],
+  );
+  const analytics = useAnalytics(replay.replayId, replay.server, leaders);
+
+  // Recording-sync offset (replay time = video time + offset), remembered per race in this browser.
+  const [offsets, setOffsets] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("ramp.syncOffsets") || "{}");
+    } catch {
+      return {};
+    }
+  });
+  const syncOffset = offsets[sessionId] ?? 0;
+  const setSyncOffset = (value) =>
+    setOffsets((current) => {
+      const next = { ...current, [sessionId]: value };
+      try {
+        localStorage.setItem("ramp.syncOffsets", JSON.stringify(next));
+      } catch {
+        /* storage unavailable */
+      }
+      return next;
+    });
+  const video = useVideoSync(replay, syncOffset);
+
+  function showSql(id) {
+    analytics.select(id);
+    document.getElementById("sql-analytics")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -180,12 +245,13 @@ export default function App() {
           (r) => r.status === "fulfilled" ? r.value : []
         );
         if (!cancelled) {
-          setDrivers(mapDrivers(driverRows, lapRows, resultRows));
-          setLaps(lapRows);
-          setPitStops(pitRows);
-          setTyreStints(stintRows);
-          setRaceControl(rcRows);
-          setWeather(weatherRows);
+          setApiDriverRows(driverRows);
+          setApiResultRows(resultRows);
+          setApiLaps(lapRows);
+          setApiPitStops(pitRows);
+          setApiTyreStints(stintRows);
+          setApiRaceControl(rcRows);
+          setApiWeather(weatherRows);
           setStatus("live");
         }
       } catch (err) {
@@ -232,6 +298,7 @@ export default function App() {
     : null;
 
   const raceDistance =
+    replay.server?.total_laps ||
     currentRace?.race_distance_laps ||
     (laps.length
       ? Math.max(...laps.map((l) => Number(l.lap_number)))
@@ -260,6 +327,7 @@ export default function App() {
   }
 
   function selectRace(race) {
+    replay.stop(); // a replay belongs to one race
     setSession(race.race_name);
     setSessionId(race.session_id);
     setSelected([]);
@@ -295,6 +363,10 @@ export default function App() {
         <nav className="sidebar-nav" aria-label="Dashboard sections">
           {[
             { name: "Overview", icon: Gauge, target: "overview" },
+            { name: "Broadcast", icon: Video, target: "broadcast" },
+            { name: "Replay", icon: Play, target: "replay" },
+            { name: "SQL analytics", icon: Database, target: "sql-analytics" },
+            { name: "Visual analytics", icon: BarChart3, target: "visual-analytics" },
             { name: "Lap analysis", icon: Activity, target: "lap-analysis" },
             { name: "Tyre strategy", icon: Layers3, target: "tyre-strategy" },
             { name: "Pit stops", icon: Timer, target: "pit-stops" },
@@ -339,11 +411,13 @@ export default function App() {
           <div className="topbar-right">
             <span className="data-badge">
               <span />
-              {status === "loading"
-                ? "LOADING DATA"
-                : status === "error"
-                  ? "API ERROR"
-                  : "HISTORICAL DATA"}
+              {replayLive
+                ? `REPLAY · LAP ${replay.server?.current_lap ?? 0}`
+                : status === "loading"
+                  ? "LOADING DATA"
+                  : status === "error"
+                    ? "API ERROR"
+                    : "HISTORICAL DATA"}
             </span>
           </div>
         </header>
@@ -391,6 +465,15 @@ export default function App() {
             </div>
           </section>
 
+          <BroadcastStage replay={replay} analytics={analytics} video={video} onShowSql={showSql} />
+          <ReplayControls
+            replay={replay}
+            raceName={currentRace?.race_name || session}
+            sessionId={sessionId}
+            syncOffset={syncOffset}
+            setSyncOffset={setSyncOffset}
+          />
+
           <section className="stats-grid">
             <StatCard
               icon={Flag}
@@ -423,6 +506,11 @@ export default function App() {
               }
             />
           </section>
+
+          <RaceOverview replay={replay} />
+          <SqlAnalytics replay={replay} analytics={analytics} colors={teamColors} />
+          <VisualAnalytics replay={replay} analytics={analytics} colors={teamColors} />
+          <VideoSync replay={replay} video={video} syncOffset={syncOffset} setSyncOffset={setSyncOffset} />
 
           <section className="content-grid">
             <article className="panel lap-panel" id="lap-analysis">
@@ -523,7 +611,9 @@ export default function App() {
               <div className="chart-foot">
                 <span>
                   <span className="live-dot" />
-                  {status === "live" ? "Historical API data" : "No data available"}
+                  {replayLive
+                    ? `Up to the replay clock · lap ${replay.server?.current_lap ?? 0}`
+                    : status === "live" ? "Historical API data" : "No data available"}
                 </span>
                 <span>Lap 01 — {lapLimit}</span>
               </div>

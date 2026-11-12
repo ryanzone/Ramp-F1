@@ -15,7 +15,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],
     allow_credentials=False,
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["*"],
 )
 
@@ -159,3 +159,11 @@ def race_control(limit: int = Query(default=100, ge=1, le=1000)):
 
 from backend.demo_routes import router as demo_router
 app.include_router(demo_router)
+
+from backend.replay_routes import router as replay_router, ws_router as replay_ws_router
+app.include_router(replay_router)
+app.include_router(replay_ws_router)
+
+from backend.analytics_routes import router as analytics_router, ws_router as analytics_ws_router
+app.include_router(analytics_router)
+app.include_router(analytics_ws_router)

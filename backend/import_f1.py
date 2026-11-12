@@ -6,19 +6,34 @@ from dotenv import load_dotenv
 
 load_dotenv()
 API = "https://api.openf1.org/v1"
-YEAR = int(os.getenv("F1_YEAR", "2025"))
-COUNTRIES = {"Australia", "Bahrain", "Saudi Arabia", "United Arab Emirates"}
+YEAR = int(os.getenv("F1_YEAR", "2026"))
+# Import every completed race of the season up to and including this date (YYYY-MM-DD).
+END_DATE = os.getenv("F1_END_DATE", "2026-11-08")
 DB = dict(host=os.getenv("DB_HOST", "localhost"), port=os.getenv("DB_PORT", "5432"),
           dbname=os.getenv("DB_NAME", "f1_analytics"), user=os.getenv("DB_USER", "postgres"),
           password=os.getenv("DB_PASSWORD"))
 
 
 def fetch(endpoint, **params):
-    r = requests.get(f"{API}/{endpoint}", params=params, timeout=60)
+    """GET with retries: OpenF1 rate-limits (429), so back off and honour Retry-After."""
+    for attempt in range(7):
+        r = requests.get(f"{API}/{endpoint}", params=params, timeout=60)
+        if r.status_code == 429 or r.status_code >= 500:
+            try:
+                wait = float(r.headers.get("Retry-After", 0))
+            except ValueError:
+                wait = 0
+            time.sleep(min(60, max(wait, 2 ** attempt)))
+            continue
+        r.raise_for_status()
+        data = r.json()
+        time.sleep(float(os.getenv("OPENF1_DELAY", "0.5")))
+        return data
     r.raise_for_status()
-    data = r.json()
-    time.sleep(float(os.getenv("OPENF1_DELAY", "0.25")))
-    return data
+    raise requests.RequestException(f"{endpoint}: gave up after retries")
+
+
+FETCH_FAILURES = []
 
 
 def safe_fetch(endpoint, session_key):
@@ -26,7 +41,23 @@ def safe_fetch(endpoint, session_key):
         return fetch(endpoint, session_key=session_key)
     except requests.RequestException as exc:
         print(f"  WARNING: {endpoint} unavailable for session {session_key}: {exc}")
+        FETCH_FAILURES.append((session_key, endpoint))
         return []
+
+
+def already_complete(skey):
+    """A race counts as complete if laps, results, race control and weather are all stored."""
+    with psycopg.connect(**DB) as conn, conn.cursor() as cur:
+        cur.execute("""SELECT
+            (SELECT COUNT(*) FROM laps l JOIN session_drivers sd USING(session_driver_id)
+               JOIN sessions s ON s.session_id=sd.session_id WHERE s.source_session_key=%(k)s),
+            (SELECT COUNT(*) FROM session_results r JOIN session_drivers sd USING(session_driver_id)
+               JOIN sessions s ON s.session_id=sd.session_id WHERE s.source_session_key=%(k)s),
+            (SELECT COUNT(*) FROM race_control_events e JOIN sessions s ON s.session_id=e.session_id
+               WHERE s.source_session_key=%(k)s),
+            (SELECT COUNT(*) FROM weather_samples w JOIN sessions s ON s.session_id=w.session_id
+               WHERE s.source_session_key=%(k)s)""", {"k": skey})
+        return all(n > 0 for n in cur.fetchone())
 
 
 def as_bool(value):
@@ -61,17 +92,111 @@ def as_numeric_gap(value):
         return None
 
 
+def replay_ready(cur):
+    """True once queries/13_replay_time_aware.sql has been applied."""
+    cur.execute("""SELECT to_regproc('replay.refresh_lap_end_times') IS NOT NULL AND EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name='laps' AND column_name='lap_start_at' AND table_schema='public')""")
+    return cur.fetchone()[0]
+
+
+def store_positions(cur, driver_map, positions, intervals):
+    """Race positions and gaps/intervals, keyed by (driver, timestamp). Nothing is invented:
+    a row only carries the fields OpenF1 returned for that timestamp."""
+    pos_rows, gap_rows = [], []
+    for r in positions:
+        num, when = r.get("driver_number"), r.get("date")
+        sd_id = driver_map.get(int(num)) if num is not None else None
+        if sd_id is not None and when and r.get("position") is not None:
+            pos_rows.append((sd_id, when, r["position"]))
+    for r in intervals:
+        num, when = r.get("driver_number"), r.get("date")
+        sd_id = driver_map.get(int(num)) if num is not None else None
+        gap, ahead = as_numeric_gap(r.get("gap_to_leader")), as_numeric_gap(r.get("interval"))
+        if sd_id is not None and when and (gap is not None or ahead is not None):
+            gap_rows.append((sd_id, when, gap, ahead))
+    if pos_rows:
+        cur.executemany("""INSERT INTO positions(session_driver_id,recorded_at,position) VALUES (%s,%s,%s)
+            ON CONFLICT(session_driver_id,recorded_at) DO UPDATE SET position=EXCLUDED.position""", pos_rows)
+    if gap_rows:
+        cur.executemany("""INSERT INTO positions(session_driver_id,recorded_at,gap_to_leader_seconds,interval_ahead_seconds)
+            VALUES (%s,%s,%s,%s) ON CONFLICT(session_driver_id,recorded_at) DO UPDATE SET
+            gap_to_leader_seconds=EXCLUDED.gap_to_leader_seconds,interval_ahead_seconds=EXCLUDED.interval_ahead_seconds""",
+                        gap_rows)
+    return len(pos_rows), len(gap_rows)
+
+
+def backfill(races):
+    """F1_BACKFILL=1: add lap start times, positions and intervals to races that are already imported.
+    Only UPDATEs laps.lap_start_at and rebuilds that session's positions; nothing else is touched."""
+    with psycopg.connect(**DB) as conn, conn.cursor() as cur:
+        if not replay_ready(cur):
+            raise RuntimeError("Apply queries/13_replay_time_aware.sql first (python backend/apply_replay_sql.py).")
+    for session in races:
+        skey = session["session_key"]
+        print(f"\nBackfilling {session.get('country_name')} | session_key={skey}")
+        with psycopg.connect(**DB) as conn, conn.cursor() as cur:
+            cur.execute("SELECT session_id FROM sessions WHERE source_session_key=%s", (skey,))
+            row = cur.fetchone()
+            if not row:
+                print("  not imported yet; run the normal import first")
+                continue
+            session_id = row[0]
+            if os.getenv("F1_FORCE") != "1":
+                cur.execute("""SELECT
+                    (SELECT COUNT(*) FROM laps l JOIN session_drivers sd USING(session_driver_id)
+                       WHERE sd.session_id=%(s)s AND l.lap_start_at IS NOT NULL),
+                    (SELECT COUNT(*) FROM positions p JOIN session_drivers sd USING(session_driver_id)
+                       WHERE sd.session_id=%(s)s)""", {"s": session_id})
+                if all(n > 0 for n in cur.fetchone()):
+                    print("  already backfilled; skipping (F1_FORCE=1 to redo)")
+                    continue
+        failures_before = len(FETCH_FAILURES)
+        laps, positions, intervals = (safe_fetch("laps", skey), safe_fetch("position", skey),
+                                      safe_fetch("intervals", skey))
+        if len(FETCH_FAILURES) > failures_before:
+            print("  SKIPPED: some requests failed; nothing changed. Re-run later.")
+            continue
+        with psycopg.connect(**DB) as conn, conn.cursor() as cur:
+            cur.execute("""SELECT d.driver_number, sd.session_driver_id FROM session_drivers sd
+                JOIN drivers d ON d.driver_id=sd.driver_id WHERE sd.session_id=%s""", (session_id,))
+            driver_map = {int(n): sd for n, sd in cur.fetchall()}
+            starts = [(lap["date_start"], driver_map[int(lap["driver_number"])], lap["lap_number"])
+                      for lap in laps if lap.get("date_start") and lap.get("driver_number") is not None
+                      and int(lap["driver_number"]) in driver_map and lap.get("lap_number") is not None]
+            cur.executemany("UPDATE laps SET lap_start_at=%s WHERE session_driver_id=%s AND lap_number=%s", starts)
+            cur.execute("SELECT replay.refresh_lap_end_times(%s)", (session_id,))
+            ends = cur.fetchone()[0]
+            cur.execute("DELETE FROM positions WHERE session_driver_id IN "
+                        "(SELECT session_driver_id FROM session_drivers WHERE session_id=%s)", (session_id,))
+            n_pos, n_gap = store_positions(cur, driver_map, positions, intervals)
+            print(f"  lap starts={len(starts)}; lap ends derived={ends}; positions={n_pos}; gaps/intervals={n_gap}")
+
+
 def main():
     all_sessions = fetch("sessions", year=YEAR)
-    races = sorted((s for s in all_sessions if s.get("session_type") == "Race" and
-                    s.get("country_name") in COUNTRIES), key=lambda s: s.get("date_start") or "")
-    if not races:
-        raise RuntimeError(f"No {YEAR} race sessions found for {sorted(COUNTRIES)}")
+    # Grand Prix races only: OpenF1 also tags Sprints as session_type "Race", so match the name.
+    def is_grand_prix(s):
+        return s.get("session_name") == "Race" and not s.get("is_cancelled")
 
-    # Keep all four selected races; do not accidentally import only the latest session.
+    races = sorted((s for s in all_sessions if is_grand_prix(s) and
+                    (s.get("date_start") or "")[:10] <= END_DATE), key=lambda s: s.get("date_start") or "")
+    if not races:
+        raise RuntimeError(f"No {YEAR} race sessions found up to {END_DATE}")
+    print(f"Importing {len(races)} {YEAR} races up to {END_DATE}")
+    if os.getenv("F1_BACKFILL") == "1":
+        backfill(races)
+        skipped = sorted({k for k, _ in FETCH_FAILURES})
+        print("Backfill finished." + (f" Incomplete (re-run to retry): {skipped}" if skipped else ""))
+        return
+
     for session in races:
         skey = session["session_key"]
         print(f"\nImporting {session.get('session_name')} | {session.get('country_name')} | session_key={skey}")
+        if os.getenv("F1_FORCE") != "1" and already_complete(skey):
+            print("  already complete in the database; skipping (set F1_FORCE=1 to re-import)")
+            continue
+        failures_before = len(FETCH_FAILURES)
         drivers = safe_fetch("drivers", skey)
         laps = safe_fetch("laps", skey)
         stints = safe_fetch("stints", skey)
@@ -79,8 +204,14 @@ def main():
         weather = safe_fetch("weather", skey)
         control = safe_fetch("race_control", skey)
         results = safe_fetch("session_result", skey)
+        positions = safe_fetch("position", skey)
+        intervals = safe_fetch("intervals", skey)
+        if len(FETCH_FAILURES) > failures_before:
+            # Never rebuild a race from a partial fetch: that would delete good stored rows.
+            print("  SKIPPED: some requests failed; database left unchanged for this race. Re-run later.")
+            continue
 
-        race_order = sorted((s for s in all_sessions if s.get("session_type") == "Race"),
+        race_order = sorted((s for s in all_sessions if is_grand_prix(s)),
                             key=lambda s: s.get("date_start") or "")
         round_no = next((i for i, s in enumerate(race_order, 1) if s.get("session_key") == skey), None)
         with psycopg.connect(**DB) as conn:
@@ -113,6 +244,10 @@ def main():
                 cur.execute("DELETE FROM tyre_stints WHERE session_driver_id IN (SELECT session_driver_id FROM session_drivers WHERE session_id=%s)", (session_id,))
                 for table in ("weather_samples", "race_control_events"):
                     cur.execute(f"DELETE FROM {table} WHERE session_id=%s", (session_id,))
+                cur.execute("DELETE FROM positions WHERE session_driver_id IN (SELECT session_driver_id FROM session_drivers WHERE session_id=%s)", (session_id,))
+                replay_cols = replay_ready(cur)
+                if not replay_cols:
+                    print("  note: replay migration not applied; lap start times are not stored")
 
                 driver_map, driver_id_map = {}, {}
                 for d in drivers:
@@ -156,6 +291,13 @@ def main():
                         speed_trap_kmh=EXCLUDED.speed_trap_kmh,is_valid=EXCLUDED.is_valid""",
                         (sd_id, lap_no, duration, lap.get("duration_sector_1"), lap.get("duration_sector_2"),
                          lap.get("duration_sector_3"), lap.get("st_speed"), valid))
+
+                if replay_cols:
+                    cur.executemany("UPDATE laps SET lap_start_at=%s WHERE session_driver_id=%s AND lap_number=%s",
+                                    [(lap["date_start"], driver_map[int(lap["driver_number"])], lap["lap_number"])
+                                     for lap in laps if lap.get("date_start") and lap.get("driver_number") is not None
+                                     and int(lap["driver_number"]) in driver_map and lap.get("lap_number") is not None])
+                    cur.execute("SELECT replay.refresh_lap_end_times(%s)", (session_id,))
 
                 for row in stints:
                     num = row.get("driver_number")
@@ -219,9 +361,12 @@ def main():
                         (sd_id, result.get("grid_position"), result.get("position"), result.get("number_of_laps"),
                          result.get("duration"), as_numeric_gap(result.get("gap_to_leader")), bool(result.get("dnf")),
                          bool(result.get("dns")), bool(result.get("dsq"))))
+                n_pos, n_gap = store_positions(cur, driver_map, positions, intervals)
                 print(f"  session_id={session_id}; drivers={len(driver_map)}; laps={len(laps)}; "
-                      f"stints={len(stints)}; pits={len(pits)}; weather={len(weather)}; control={len(control)}; results={len(results)}")
-    print("Import finished.")
+                      f"stints={len(stints)}; pits={len(pits)}; weather={len(weather)}; control={len(control)}; "
+                      f"results={len(results)}; positions={n_pos}; gaps={n_gap}")
+    skipped = sorted({k for k, _ in FETCH_FAILURES})
+    print("Import finished." + (f" Incomplete (re-run to retry): {skipped}" if skipped else ""))
 
 if __name__ == "__main__":
     main()

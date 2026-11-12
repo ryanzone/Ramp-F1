@@ -1,12 +1,3 @@
--- =========================================================
--- RAMP: ANOMALY DETECTION
--- Detects unusual lap pace and long pit stops
--- Stores detected events in detected_events
--- =========================================================
-
-
--- STEP 1: DETECT UNUSUAL LAP PACE
-
 WITH pace_anomalies AS (
 
     SELECT

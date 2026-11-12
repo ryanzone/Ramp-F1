@@ -1,10 +1,3 @@
--- =========================================================
--- RAMP: ANALYTICS TESTING
--- =========================================================
-
-
--- TEST 1: Check imported lap records
-
 SELECT
     COUNT(*) AS total_laps,
     COUNT(DISTINCT session_driver_id) AS drivers_count,
