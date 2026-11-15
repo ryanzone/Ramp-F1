@@ -84,7 +84,15 @@ export function useAnalytics(replayId, server, topCodes) {
       const socket = await ensureSocket();
       if (!socket) return analyticsApi.query(replayId, question); // REST fallback
       return new Promise((resolve, reject) => {
-        pendingRef.current = { resolve, reject };
+        // A lost answer must never leave the chat stuck on "busy": give up after 30 s.
+        const timer = setTimeout(() => {
+          pendingRef.current = null;
+          reject(new Error("The analyst did not answer in time. Try again."));
+        }, 30000);
+        pendingRef.current = {
+          resolve: (value) => { clearTimeout(timer); resolve(value); },
+          reject: (error) => { clearTimeout(timer); reject(error); },
+        };
         socket.send(JSON.stringify({ question, replay_id: replayId }));
       });
     },

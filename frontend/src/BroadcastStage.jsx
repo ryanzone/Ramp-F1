@@ -14,7 +14,7 @@ function TyreBadge({ compound, size = 22 }) {
   );
 }
 
-function RaceOrderCard({ rows, focus, onFocus, status }) {
+export function RaceOrderCard({ rows, focus, onFocus, status }) {
   const top = rows.filter((r) => r.position != null).slice(0, 5);
   return (
     <section className="glass order-card">
@@ -34,7 +34,7 @@ function RaceOrderCard({ rows, focus, onFocus, status }) {
   );
 }
 
-function SectorCard({ driver, board }) {
+export function SectorCard({ driver, board }) {
   const cell = (label, s) => (
     <div>
       <small>{label}</small>
@@ -62,7 +62,7 @@ function SectorCard({ driver, board }) {
   );
 }
 
-function StintCard({ driver, stint, board, totalLaps }) {
+export function StintCard({ driver, stint, board, totalLaps }) {
   const c = compoundInfo(stint?.compound);
   return (
     <section className="glass stint-card">
@@ -88,7 +88,7 @@ function StintCard({ driver, stint, board, totalLaps }) {
   );
 }
 
-function TrackCard({ store, status }) {
+export function TrackCard({ store, status }) {
   const w = store.weather?.data;
   return (
     <section className="glass track-card">

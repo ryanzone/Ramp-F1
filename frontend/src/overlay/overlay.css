@@ -1,0 +1,54 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700;800&display=swap');
+
+:root {
+  --bg: #0d0e11; --panel: #14161b; --border: #272a31; --muted: #858a97; --red: #e10600;
+  --accent-bg: rgba(198, 243, 90, .1); --accent-border: rgba(198, 243, 90, .35);
+}
+html, body, #root { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+body { font-family: 'DM Sans', 'Segoe UI', system-ui, sans-serif; font-size: 13px; color: #f1f2f5; user-select: none; }
+* { box-sizing: border-box; }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+
+/* The whole screen is the canvas; each panel is pinned to a screen edge, the middle stays clear for the video. */
+.hud { position: fixed; inset: 0; }
+.col-left { position: absolute; left: 16px; top: 64px; width: 330px; display: flex; flex-direction: column; gap: 14px; }
+.col-right { position: absolute; right: 16px; top: 64px; bottom: 16px; width: 390px; display: flex; flex-direction: column; justify-content: flex-start; }
+.col-right .pitwall { max-height: 100%; }
+.col-bottom { position: absolute; left: 16px; bottom: 16px; display: grid; grid-template-columns: 330px 330px; gap: 14px; align-items: end; }
+.hud.locked .glass, .hud.locked .hud-bar { border-color: rgba(225, 6, 0, 0.55); }
+
+/* Top control strip */
+.hud-bar { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px;
+  min-width: 460px; padding: 6px 10px; border-radius: 10px; -webkit-app-region: drag;
+  background: rgba(10, 11, 15, 0.8); border: 1px solid rgba(255, 255, 255, 0.1); backdrop-filter: blur(8px); }
+.hud-bar button, .hud-bar input { -webkit-app-region: no-drag; }
+.logo { color: var(--red); letter-spacing: 0.14em; }
+.lap { font-weight: 700; }
+.clock { font: 12px 'DM Mono', monospace; color: rgba(255, 255, 255, 0.7); }
+.flag { padding: 2px 7px; border-radius: 4px; font-size: 11px; font-weight: 700; background: rgba(255, 255, 255, 0.14); }
+.flag.tone-ok { background: #1a9b4b; }
+.flag.tone-warn { background: #f5c400; color: #000; }
+.flag.tone-bad { background: var(--red); }
+.spacer { flex: 1; }
+.dim { color: rgba(255, 255, 255, 0.55); }
+.err { color: #ff8a80; }
+
+.hud-bar button, .hud-card button { background: rgba(255, 255, 255, 0.1); border: 0; border-radius: 5px; padding: 4px 9px; }
+.hud-bar button:hover:not(:disabled), .hud-card button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.22); }
+.hud-bar button.on, .hud-card button.on { background: var(--red); }
+.hud-card button:disabled { opacity: 0.4; cursor: default; }
+.hud-card select, .hud-card input:not([type=range]) { background: rgba(255, 255, 255, 0.1); border: 0; border-radius: 5px; padding: 5px 7px; outline: none; }
+.hud-card select option { color: #000; }
+.hud-card input[type=range] { accent-color: var(--red); width: 120px; }
+
+/* Settings drop-down under the strip */
+.hud-card { position: absolute; top: 58px; left: 50%; transform: translateX(-50%); width: 460px; display: grid; gap: 8px; padding: 10px 12px;
+  border-radius: 10px; background: rgba(10, 11, 15, 0.9); border: 1px solid rgba(255, 255, 255, 0.1); backdrop-filter: blur(8px); }
+.hud-card.err { top: auto; bottom: 16px; width: auto; max-width: 560px; }
+.row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.row input:not([type=range]) { flex: 1; min-width: 70px; }
+
+/* "View SQL" has no screen to open in the HUD */
+.pw-meta button { display: none; }
+.pw-thread { user-select: text; }

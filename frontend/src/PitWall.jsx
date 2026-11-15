@@ -115,7 +115,7 @@ export default function PitWall({ replay, analytics, onShowSql }) {
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder={replay.active ? "Ask about this race…" : "Start a replay first"}
-          disabled={!replay.active || busy}
+          disabled={!replay.active}
           maxLength={500}
           aria-label="Question for the Pit Wall"
         />
