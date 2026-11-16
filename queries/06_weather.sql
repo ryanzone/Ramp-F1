@@ -1,11 +1,11 @@
 SELECT
-    s.session_type,
-    w.recorded_at,
-    w.air_temperature,
-    w.track_temperature,
-    w.humidity,
-    w.rainfall,
-    w.wind_speed
-FROM weather_samples w
-JOIN sessions s ON s.session_id = w.session_id
-ORDER BY w.recorded_at;
+    recorded_at,
+    air_temperature,
+    track_temperature,
+    humidity,
+    rainfall,
+    wind_speed
+FROM weather_samples
+WHERE session_id = 1
+  AND recorded_at IS NOT NULL
+ORDER BY recorded_at;

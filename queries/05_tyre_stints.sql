@@ -1,4 +1,5 @@
 SELECT
+    d.driver_number,
     d.driver_code,
     ts.stint_number,
     ts.compound,
@@ -10,4 +11,5 @@ JOIN session_drivers sd
     ON sd.session_driver_id = ts.session_driver_id
 JOIN drivers d
     ON d.driver_id = sd.driver_id
-ORDER BY d.driver_code, ts.stint_number;
+WHERE sd.session_id = 1
+ORDER BY d.driver_number, ts.stint_number;
