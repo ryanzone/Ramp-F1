@@ -1,20 +1,38 @@
 WITH base AS (
-    SELECT driver_code, driver_name, team_name, lap_number, lap_time_seconds
-    FROM laps 
-    WHERE is_valid AND lap_time_seconds IS NOT NULL
+    SELECT
+        d.driver_code,
+        d.driver_name,
+        t.team_name,
+        l.lap_number,
+        l.lap_time_seconds
+    FROM laps l
+    JOIN session_drivers sd ON l.session_driver_id = sd.session_driver_id
+    JOIN drivers d ON sd.driver_id = d.driver_id
+    LEFT JOIN teams t ON sd.team_id = t.team_id
+    WHERE l.is_valid = TRUE
+      AND l.lap_time_seconds IS NOT NULL
 ),
 clean AS (
-    SELECT * FROM (
-        SELECT b.*, MIN(lap_time_seconds) OVER (PARTITION BY driver_code) AS best 
+    SELECT *
+    FROM (
+        SELECT b.*,
+            MIN(lap_time_seconds) OVER (
+                PARTITION BY driver_code
+            ) AS best
         FROM base b
     ) x
-    WHERE lap_time_seconds <= best * :clean_factor
+    WHERE lap_time_seconds <= best * 1.10
 )
-SELECT RANK() OVER (ORDER BY STDDEV_SAMP(lap_time_seconds)) AS consistency_rank, driver_code, driver_name,
-       team_name, COUNT(*) AS laps_used, ROUND(STDDEV_SAMP(lap_time_seconds), 3) AS lap_stddev,
-       ROUND(AVG(lap_time_seconds), 3) AS avg_lap
-FROM clean 
+SELECT
+    RANK() OVER (ORDER BY STDDEV_SAMP(lap_time_seconds)) AS consistency_rank,
+    driver_code,
+    driver_name,
+    team_name,
+    COUNT(*) AS laps_used,
+    ROUND(STDDEV_SAMP(lap_time_seconds), 3) AS lap_stddev,
+    ROUND(AVG(lap_time_seconds), 3) AS avg_lap
+FROM clean
 GROUP BY driver_code, driver_name, team_name
-HAVING COUNT(*) >= :min_laps AND COUNT(*) >= 0.5 * (SELECT MAX(lap_number) FROM laps)
-ORDER BY consistency_rank 
-LIMIT :limit;
+HAVING COUNT(*) >= 5
+ORDER BY consistency_rank
+LIMIT 10;

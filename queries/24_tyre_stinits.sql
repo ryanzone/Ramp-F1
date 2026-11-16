@@ -1,5 +1,21 @@
-SELECT driver_code, team_name, stint_number, compound, start_lap,
-       COALESCE(end_lap, start_lap + laps_completed - 1) AS last_lap,
-       CASE WHEN end_lap IS NULL THEN 'running' ELSE 'finished' END AS status, laps_completed
-FROM tyre_stints 
-ORDER BY team_name, driver_code, stint_number;
+SELECT
+    d.driver_code,
+    t.team_name,
+    ts.stint_number,
+    ts.compound,
+    ts.start_lap,
+    ts.end_lap AS last_lap,
+    CASE
+        WHEN ts.end_lap IS NULL THEN 'running'
+        ELSE 'finished'
+    END AS status,
+    COALESCE(ts.end_lap, ts.start_lap - 1) - ts.start_lap + 1
+        AS laps_completed
+FROM tyre_stints ts
+JOIN session_drivers sd
+    ON ts.session_driver_id = sd.session_driver_id
+JOIN drivers d
+    ON sd.driver_id = d.driver_id
+LEFT JOIN teams t
+    ON sd.team_id = t.team_id
+ORDER BY t.team_name, d.driver_code, ts.stint_number;

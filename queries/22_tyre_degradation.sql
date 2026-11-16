@@ -1,16 +1,48 @@
 WITH stint_laps AS (
-    SELECT s.driver_code, s.driver_name, s.team_name, s.compound, l.lap_time_seconds, l.lap_number, l.lap_number - s.start_lap AS stint_lap
-    FROM current_stints s
-    JOIN laps l ON l.session_driver_id = s.session_driver_id AND l.lap_number >= s.start_lap
-               AND l.is_valid AND l.lap_time_seconds IS NOT NULL
-    JOIN driver_pace p ON p.session_driver_id = s.session_driver_id
-    WHERE l.lap_time_seconds <= p.best_lap * :clean_factor
+    SELECT
+        d.driver_code,
+        d.driver_name,
+        t.team_name,
+        ts.compound,
+        l.lap_time_seconds,
+        l.lap_number,
+        l.lap_number - ts.start_lap AS stint_lap,
+        MIN(l.lap_time_seconds) OVER (
+            PARTITION BY sd.session_driver_id
+        ) AS best_lap
+    FROM tyre_stints ts
+    JOIN session_drivers sd
+        ON ts.session_driver_id = sd.session_driver_id
+    JOIN drivers d
+        ON sd.driver_id = d.driver_id
+    LEFT JOIN teams t
+        ON sd.team_id = t.team_id
+    JOIN laps l
+        ON l.session_driver_id = ts.session_driver_id
+       AND l.lap_number >= ts.start_lap
+       AND (ts.end_lap IS NULL OR l.lap_number <= ts.end_lap)
+       AND l.is_valid = TRUE
+       AND l.lap_time_seconds IS NOT NULL
+),
+clean AS (
+    SELECT *
+    FROM stint_laps
+    WHERE lap_time_seconds <= best_lap * 1.10
 )
-SELECT RANK() OVER (ORDER BY REGR_SLOPE(lap_time_seconds, stint_lap) DESC) AS degradation_rank, driver_code,
-       driver_name, team_name, compound, COUNT(*) AS laps_in_stint,
-       ROUND(CAST(REGR_SLOPE(lap_time_seconds, stint_lap) AS NUMERIC), 3) AS seconds_per_lap
-FROM stint_laps 
+SELECT
+    RANK() OVER (
+        ORDER BY REGR_SLOPE(lap_time_seconds, stint_lap) DESC
+    ) AS degradation_rank,
+    driver_code,
+    driver_name,
+    team_name,
+    compound,
+    COUNT(*) AS laps_in_stint,
+    ROUND(
+        CAST(REGR_SLOPE(lap_time_seconds, stint_lap) AS NUMERIC), 3
+    ) AS seconds_per_lap
+FROM clean
 GROUP BY driver_code, driver_name, team_name, compound
-HAVING COUNT(*) >= :min_laps AND MAX(lap_number) >= (SELECT MAX(lap_number) FROM laps) - 3
-ORDER BY degradation_rank 
-LIMIT :limit;
+HAVING COUNT(*) >= 5
+ORDER BY degradation_rank
+LIMIT 10;

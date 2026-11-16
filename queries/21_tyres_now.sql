@@ -1,6 +1,22 @@
-SELECT s.driver_code, s.driver_name, s.team_name, s.compound, s.stint_number, s.start_lap,
-       COALESCE(s.starting_tyre_age, 0) + s.laps_completed AS tyre_age_laps, c.position
-FROM current_stints s 
-LEFT JOIN current_positions c ON c.session_driver_id = s.session_driver_id
-WHERE UPPER(s.compound) = :compound -- Optional filter
-ORDER BY s.compound, c.position;
+SELECT
+    d.driver_code,
+    d.driver_name,
+    t.team_name,
+    ts.compound,
+    ts.stint_number,
+    ts.start_lap,
+    COALESCE(ts.starting_tyre_age, 0)
+        + COALESCE(ts.end_lap, ts.start_lap) - ts.start_lap
+        AS tyre_age_laps,
+    p.position
+FROM tyre_stints ts
+JOIN session_drivers sd
+    ON ts.session_driver_id = sd.session_driver_id
+JOIN drivers d
+    ON sd.driver_id = d.driver_id
+LEFT JOIN teams t
+    ON sd.team_id = t.team_id
+LEFT JOIN positions p
+    ON p.session_driver_id = sd.session_driver_id
+WHERE UPPER(ts.compound) = 'SOFT'
+ORDER BY ts.compound, p.position;
