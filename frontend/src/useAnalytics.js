@@ -1,18 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { analyticsApi } from "./api.js";
 
-// The six charts of the Visual Analytics section: each is a real SQL question, asked silently
+// The three charts of the Visual Analytics section: each is a real SQL question, asked silently
 // (remember = false) so it never changes the chat history or who "him" refers to.
 export function chartQuestions(topCodes) {
   const list = [
     { key: "pace", question: "Who has the best race pace?" },
     { key: "positions", question: "Show the position progression" },
-    { key: "stints", question: "Show the tyre stints" },
-    { key: "pits", question: "How many pit stops has each driver completed?" },
-    { key: "tyres", question: "Which tyres are the drivers on right now?" },
   ];
-  if (topCodes && topCodes.length >= 2) {
-    list.push({ key: "compare", question: `Compare ${topCodes[0]} and ${topCodes[1]} race pace` });
+  const drivers = (topCodes || []).slice(0, 5);
+  if (drivers.length >= 2) {
+    const names =
+      drivers.length === 2
+        ? `${drivers[0]} and ${drivers[1]}`
+        : `${drivers.slice(0, -1).join(", ")} and ${drivers[drivers.length - 1]}`;
+    list.push({ key: "compare", question: `Compare ${names} race pace` });
   }
   return list;
 }
@@ -135,7 +137,7 @@ export function useAnalytics(replayId, server, topCodes) {
 
   // Charts refresh once per lap and after every seek, never faster: they show the replay clock.
   const lapKey = server ? `${server.epoch}:${server.current_lap}` : null;
-  const topKey = (topCodes || []).slice(0, 2).join(",");
+  const topKey = (topCodes || []).slice(0, 5).join(",");
   useEffect(() => {
     if (!replayId || !lapKey) return undefined;
     const token = ++chartToken.current;

@@ -1,0 +1,309 @@
+/* Add these rules to your existing overlay.css */
+.pw-controls {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.pw-question-bank {
+  position: relative;
+}
+
+.pw-question-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-align: left;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.pw-question-toggle:hover,
+.pw-question-bank.is-open .pw-question-toggle {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.pw-chevron {
+  flex-shrink: 0;
+  opacity: 0.75;
+  transition: transform 180ms ease;
+}
+
+.pw-chevron.open {
+  transform: rotate(180deg);
+}
+
+.pw-question-groups {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 20;
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 4px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  background: rgba(14, 17, 23, 0.94);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
+.pw-question-groups::-webkit-scrollbar {
+  width: 5px;
+}
+
+.pw-question-groups::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.pw-question-groups::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+}
+
+.pw-question-group + .pw-question-group {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.pw-group-heading {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 4px;
+  border: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.78);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  text-align: left;
+  cursor: pointer;
+  transition: color 140ms ease;
+}
+
+.pw-group-heading:hover,
+.pw-group-heading.active {
+  color: #ffffff;
+}
+
+.pw-group-count {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.pw-group-questions {
+  display: grid;
+  gap: 6px;
+  padding: 0 0 10px;
+}
+
+.pw-group-questions button {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.9);
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, transform 100ms ease;
+}
+
+.pw-group-questions button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.11);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.pw-group-questions button:active:not(:disabled) {
+  transform: scale(0.99);
+}
+
+.pw-group-questions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+/* Put this at the VERY BOTTOM of overlay.css (or import it in PitWall.jsx) */
+.pitwall .pw-controls {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.pitwall .pw-question-bank {
+  position: relative;
+}
+
+.pitwall .pw-question-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.88);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.pitwall .pw-question-toggle:hover,
+.pitwall .pw-question-bank.is-open .pw-question-toggle {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(200, 245, 66, 0.45);
+  color: #ffffff;
+}
+
+.pitwall .pw-chevron {
+  flex-shrink: 0;
+  opacity: 0.75;
+  transition: transform 180ms ease;
+}
+
+.pitwall .pw-chevron.open {
+  transform: rotate(180deg);
+}
+
+.pitwall .pw-question-groups {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 30;
+  max-height: 290px;
+  overflow-y: auto;
+  padding: 6px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 16px;
+  background: #14161d;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.65);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
+.pitwall .pw-question-groups::-webkit-scrollbar {
+  width: 5px;
+}
+
+.pitwall .pw-question-groups::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.pitwall .pw-question-groups::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+}
+
+.pitwall .pw-question-group + .pw-question-group {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.pitwall .pw-group-heading {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 4px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.72);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  transition: color 140ms ease;
+}
+
+.pitwall .pw-group-heading:hover,
+.pitwall .pw-group-heading.active {
+  color: #c8f542;
+}
+
+.pitwall .pw-group-count {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.pitwall .pw-group-questions {
+  display: grid;
+  gap: 6px;
+  padding: 2px 0 10px;
+}
+
+.pitwall .pw-group-questions button {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.9);
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.pitwall .pw-group-questions button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(200, 245, 66, 0.4);
+  color: #ffffff;
+}
+
+.pitwall .pw-group-questions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

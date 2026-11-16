@@ -5,7 +5,8 @@ import { useAnalytics } from "../useAnalytics.js";
 import PitWall from "../PitWall.jsx";
 import { RaceOrderCard, SectorCard, StintCard, TrackCard } from "../BroadcastStage.jsx";
 import { formatClock, parseClock, raceStatus, sectorBoard, standings } from "../replayModel.js";
-
+import VisualAnalytics from "../VisualAnalytics.jsx";
+import PostRaceAnalysis from "../PostRaceAnalysis.jsx";
 const SPEEDS = [1, 2, 5, 10];
 
 const load = (key, fallback) => {
@@ -54,10 +55,11 @@ export default function Overlay() {
 
   const { store, drivers, server } = replay;
   const rows = useMemo(() => standings(store, drivers), [store, drivers]);
-  const leaders = useMemo(() => rows.filter((r) => r.position != null).slice(0, 2).map((r) => r.code), [rows]);
+  const leaders = useMemo(() => rows.filter((r) => r.position != null).slice(0, 5).map((r) => r.code), [rows]);
   const analytics = useAnalytics(replay.replayId, server, leaders);
   const elapsed = useElapsed(replay);
   const playing = server?.state === "playing";
+  const finished = server?.finished === true;
   const duration = server?.duration || 0;
   const status = raceStatus(store);
   const focus = picked ?? rows.find((r) => r.position === 1)?.number ?? rows[0]?.number ?? null;
@@ -207,19 +209,54 @@ export default function Overlay() {
       )}
       {replay.error && <div className="hud-card err" data-hit>{replay.error}</div>}
 
-      {replay.active && (
-        <>
-          <div className="col-left" data-hit>
-            <RaceOrderCard rows={rows} focus={focus} onFocus={setPicked} status={status} />
-            <SectorCard driver={focusRow} board={board} />
-          </div>
+{replay.active && !finished && (
+  <>
+    <div className="col-left" data-hit>
+      <RaceOrderCard
+        rows={rows}
+        focus={focus}
+        onFocus={setPicked}
+        status={status}
+      />
+      <SectorCard driver={focusRow} board={board} />
+    </div>
 
-          <div className="col-bottom" data-hit>
-            <StintCard driver={focusRow} stint={focusRow?.stint} board={board} totalLaps={server?.total_laps} />
-            <TrackCard store={store} status={status} />
-          </div>
-        </>
-      )}
+    <div className="col-bottom" data-hit>
+      <StintCard
+        driver={focusRow}
+        stint={focusRow?.stint}
+        board={board}
+        totalLaps={server?.total_laps}
+      />
+      <TrackCard store={store} status={status} />
+    </div>
+  </>
+)}
+
+{replay.active && finished && (
+  <main className="postrace-screen" data-hit>
+    <div className="postrace-heading">
+      <div>
+        <span className="postrace-kicker">RAMP / RACE COMPLETE</span>
+        <h1>Post-Race Analysis</h1>
+        <p>
+          Full race breakdown · {server?.total_laps ?? server?.current_lap} laps completed
+        </p>
+      </div>
+
+      <div className="postrace-status">
+        <span className="status-dot" />
+        ANALYSIS READY
+      </div>
+    </div>
+
+    <VisualAnalytics
+      replay={replay}
+      analytics={analytics}
+      colors={{}}
+    />
+  </main>
+)}
 
       <div className="col-right" data-hit>
         <PitWall replay={replay} analytics={analytics} onShowSql={noop} />

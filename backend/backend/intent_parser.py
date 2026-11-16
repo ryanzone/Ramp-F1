@@ -215,5 +215,9 @@ def parse(question: str, roster: list[dict], context: Context | None = None) -> 
         need = 'two drivers' if intent.needs_drivers == 2 else 'a driver'
         return Parsed(intent, entities, used, clarification=(
             f'Which {need} do you mean? Use a name or code, for example {example}.'))
-    entities.drivers = entities.drivers[:max(intent.needs_drivers, 2)]
+    if intent.needs_drivers == 1:
+            entities.drivers = entities.drivers[:1]
+    elif intent.needs_drivers >= 2:
+        entities.drivers = entities.drivers[:5]
+
     return Parsed(intent, entities, used)

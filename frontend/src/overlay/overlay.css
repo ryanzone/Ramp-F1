@@ -52,3 +52,325 @@ button { cursor: pointer; }
 /* "View SQL" has no screen to open in the HUD */
 .pw-meta button { display: none; }
 .pw-thread { user-select: text; }
+
+
+/* Post-race view only: live HUD layout remains unchanged. */
+.postrace-screen {
+  position: absolute;
+  left: 16px;
+  top: 64px;
+  right: 422px;
+  bottom: 16px;
+  overflow: auto;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(10, 12, 17, .96);
+  backdrop-filter: blur(14px);
+}
+.postrace-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 18px; }
+.postrace-kicker { color: #c6f35a; font: 500 10px 'DM Mono', monospace; letter-spacing: 2px; }
+.postrace-heading h1 { margin: 6px 0; font-size: 25px; }
+.postrace-heading p, .postrace-chart-card header p { margin: 0; color: var(--muted); font-size: 12px; }
+.postrace-status { padding: 7px 10px; border: 1px solid var(--accent-border); border-radius: 20px; color: #c6f35a; font: 10px 'DM Mono', monospace; white-space: nowrap; }
+.postrace-chart-list { display: grid; grid-template-columns: 1fr; gap: 14px; }
+.postrace-chart-card { min-width: 0; padding: 14px; border: 1px solid #292c34; border-radius: 10px; background: #14161b; }
+.postrace-chart-card > header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 8px; }
+.postrace-chart-card h2 { margin: 0 0 4px; font-size: 14px; }
+.postrace-chart-card > header > span { color: var(--muted); font: 10px 'DM Mono', monospace; white-space: nowrap; }
+.postrace-chart-box { height: 250px; min-width: 0; }
+.postrace-chart-box.positions-chart { height: 390px; }
+.postrace-message { padding: 18px; color: var(--muted); }
+.postrace-message.error { color: #ff8a80; }
+.postrace-pitwall { top: 64px; }
+.postrace-screen::-webkit-scrollbar { width: 6px; }
+.postrace-screen::-webkit-scrollbar-thumb { background: #414652; border-radius: 8px; }
+@media (max-width: 1100px) {
+  .postrace-screen { right: 16px; bottom: 320px; }
+  .postrace-pitwall { top: auto; left: 16px; right: 16px; bottom: 16px; width: auto; height: 285px; }
+}
+
+/* =========================================================
+   PIT WALL — QUESTION BANK & CONTROLS
+   ========================================================= */
+.pitwall .pw-controls {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.pitwall .pw-question-bank {
+  position: relative;
+}
+
+.pitwall .pw-question-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.88);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.pitwall .pw-question-toggle:hover,
+.pitwall .pw-question-bank.is-open .pw-question-toggle {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: var(--accent-border);
+  color: #ffffff;
+}
+
+.pitwall .pw-chevron {
+  flex-shrink: 0;
+  opacity: 0.75;
+  transition: transform 180ms ease;
+}
+
+.pitwall .pw-chevron.open {
+  transform: rotate(180deg);
+}
+
+.pitwall .pw-question-groups {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 30;
+  max-height: 290px;
+  overflow-y: auto;
+  padding: 6px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 16px;
+  background: #14161d;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.65);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
+.pitwall .pw-question-groups::-webkit-scrollbar {
+  width: 5px;
+}
+
+.pitwall .pw-question-groups::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.pitwall .pw-question-groups::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+}
+
+.pitwall .pw-question-group + .pw-question-group {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.pitwall .pw-group-heading {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 4px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.72);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  transition: color 140ms ease;
+}
+
+.pitwall .pw-group-heading:hover,
+.pitwall .pw-group-heading.active {
+  color: #c6f35a;
+}
+
+.pitwall .pw-group-count {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.pitwall .pw-group-questions {
+  display: grid;
+  gap: 6px;
+  padding: 2px 0 10px;
+}
+
+.pitwall .pw-group-questions button {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.9);
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.pitwall .pw-group-questions button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--accent-border);
+  color: #ffffff;
+}
+
+.pitwall .pw-group-questions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* =========================================================
+   VISUAL ANALYTICS GRID (POST-RACE PANEL)
+   ========================================================= */
+.postrace-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.postrace-status .status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #c6f35a;
+  box-shadow: 0 0 8px rgba(198, 243, 90, 0.7);
+}
+
+.visual-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.chart-card.is-wide {
+  grid-column: 1 / -1;
+}
+
+.chart-box.is-tall {
+  height: 360px;
+}
+
+.visual-panel .panel-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.visual-panel .panel-kicker {
+  color: #c6f35a;
+  font: 500 10px 'DM Mono', monospace;
+  letter-spacing: 1.6px;
+  margin-bottom: 4px;
+}
+
+/* Post-race view only: slightly more compact proportions */
+.postrace-screen {
+  position: absolute;
+  left: 24px;
+  top: 68px;
+  right: 430px;
+  bottom: 24px;
+  max-width: 1120px;
+  margin: 0 auto;
+  overflow: auto;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(10, 12, 17, .96);
+  backdrop-filter: blur(14px);
+}
+
+.postrace-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.postrace-heading h1 {
+  margin: 4px 0;
+  font-size: 21px;
+}
+
+.visual-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.visual-panel .panel-heading {
+  padding-bottom: 10px;
+}
+
+.visual-panel .panel-heading h2 {
+  font-size: 15px;
+}
+
+.chart-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 12px;
+}
+
+.chart-card {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 12px 14px;
+  border: 1px solid #292c34;
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.chart-card header {
+  margin-bottom: 8px;
+}
+
+.chart-card header h3 {
+  font-size: 13.5px;
+}
+
+.chart-box {
+  height: 205px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.chart-box.is-tall {
+  height: 275px;
+}

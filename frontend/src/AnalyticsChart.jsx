@@ -84,8 +84,9 @@ function PositionView({ data, hint, colors }) {
         <Tooltip {...TOOLTIP} labelFormatter={(v) => `Lap ${v}`} />
         <Legend wrapperStyle={{ fontSize: 11 }} />
         {codes.map((c, i) => (
-          <Line key={c} type="monotone" dataKey={c} stroke={(colors && colors[c]) || SERIES[i % SERIES.length]}
-            strokeWidth={2} dot={false} connectNulls isAnimationActive={false} />
+          <Line key={c} type="monotone" dataKey={c} name={c}
+            stroke={(colors && colors[c]) || SERIES[i % SERIES.length]}
+            strokeWidth={1.5} dot={false} connectNulls isAnimationActive={false} />
         ))}
       </LineChart>
     </ResponsiveContainer>

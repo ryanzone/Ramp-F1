@@ -26,7 +26,7 @@ from backend.sql_validator import Validated
 
 load_dotenv(Path(__file__).resolve().parent.parent.parent / '.env')
 
-DEFAULT_ROW_LIMIT = 500
+DEFAULT_ROW_LIMIT = 2000
 DEFAULT_TIMEOUT_MS = 3000
 
 
@@ -147,15 +147,32 @@ class QueryExecutor:
         return self._catalog
 
     # ---- execution --------------------------------------------------------------------
-    def run(self, query: Validated, params: dict, session_id: int, replay_time: datetime) -> QueryResult:
+    def run(
+        self,
+        query: Validated,
+        params: dict,
+        session_id: int,
+        replay_time: datetime,
+        row_limit: int | None = None,
+    ) -> QueryResult:
         if not isinstance(query, Validated):
             raise TypeError('only validated queries can be executed')
-        return self._execute(query.sql, params, session_id, replay_time)
+        return self._execute(query.sql, params, session_id, replay_time, row_limit=row_limit)
 
-    def _execute(self, sql: str, params: dict, session_id: int, replay_time: datetime) -> QueryResult:
+    def _execute(
+        self,
+        sql: str,
+        params: dict,
+        session_id: int,
+        replay_time: datetime,
+        row_limit: int | None = None,
+    ) -> QueryResult:
+        effective_limit = self.row_limit if row_limit is None else int(row_limit)
+        if effective_limit < 1 or effective_limit > 10000:
+            raise ValueError('row_limit must be between 1 and 10000')
         secret = self._secret()
         values = dict(params)
-        values['_row_limit'] = self.row_limit + 1               # one extra row detects truncation
+        values['_row_limit'] = effective_limit + 1       # one extra row detects truncation
         wrapped = f'SELECT * FROM ({sql}) AS _q LIMIT %(_row_limit)s'
         conn = self._acquire()
         broken = False
@@ -181,6 +198,6 @@ class QueryExecutor:
             raise QueryError(str(exc).splitlines()[0]) from None
         finally:
             self._release(conn, broken)
-        truncated = len(fetched) > self.row_limit
-        rows = [[to_json_value(v) for v in row] for row in fetched[:self.row_limit]]
+        truncated = len(fetched) > effective_limit
+        rows = [[to_json_value(v) for v in row] for row in fetched[:effective_limit]]
         return QueryResult(columns, rows, round((time.perf_counter() - started) * 1000, 1), truncated)

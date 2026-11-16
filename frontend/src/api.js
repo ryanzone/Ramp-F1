@@ -67,6 +67,7 @@ export const replayApi = {
   seek: (id, offsetSeconds) =>
     send("POST", "/api/replay/seek", { offset_seconds: offsetSeconds }, { replay_id: id }),
   stop: (id) => send("DELETE", `/api/replay/${id}`),
+  postRaceAnalysis: (id) => request("/api/replay/postrace-analysis", { replay_id: id }),
   wsUrl: (id) => `${wsBase()}/ws/replay?replay_id=${encodeURIComponent(id)}`,
 };
 

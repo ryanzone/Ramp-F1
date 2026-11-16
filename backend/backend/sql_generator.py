@@ -672,17 +672,53 @@ def explain_recent_events(rows, e):
 
 def build_position_history(e):
     if e.drivers:
-        where, params = 'WHERE l.driver_code IN (:d0' + (', :d1' if len(e.drivers) > 1 else '') + ')', \
-            {f'd{i}': d['driver_code'] for i, d in enumerate(e.drivers[:2])}
+        placeholders = [f":d{i}" for i in range(len(e.drivers))]
+        where = f"WHERE l.driver_code IN ({', '.join(placeholders)})"
+        params = {
+            f"d{i}": driver["driver_code"]
+            for i, driver in enumerate(e.drivers)
+        }
+
+    elif e.n:
+        where = """
+            JOIN current_positions cp
+                ON cp.session_driver_id = l.session_driver_id
+            WHERE cp.position <= :top
+        """
+        params = {"top": e.n}
+
     else:
-        where, params = 'JOIN current_positions cp ON cp.session_driver_id = l.session_driver_id WHERE cp.position <= :top', {'top': e.n or 5}
-    return Built(f"""SELECT l.driver_code, l.lap_number,
-                            (SELECT ps.position FROM positions ps
-                              WHERE ps.session_driver_id = l.session_driver_id AND ps.position IS NOT NULL
-                                AND ps.recorded_at <= l.lap_end_at ORDER BY ps.recorded_at DESC LIMIT 1) AS position
-                     FROM laps l {where} ORDER BY l.lap_number, l.driver_code""",
-                 params, {'type': 'position_lines', 'x': 'lap_number', 'series': 'driver_code', 'y': 'position',
-                          'title': 'Position by lap'})
+        # No driver specified: show the entire grid.
+        where = ""
+        params = {}
+
+    return Built(
+        f"""
+        SELECT
+            l.driver_code,
+            l.lap_number,
+            (
+                SELECT ps.position
+                FROM positions ps
+                WHERE ps.session_driver_id = l.session_driver_id
+                  AND ps.position IS NOT NULL
+                  AND ps.recorded_at <= l.lap_end_at
+                ORDER BY ps.recorded_at DESC
+                LIMIT 1
+            ) AS position
+        FROM laps l
+        {where}
+        ORDER BY l.lap_number, l.driver_code
+        """,
+        params,
+        {
+            "type": "position_lines",
+            "x": "lap_number",
+            "series": "driver_code",
+            "y": "position",
+            "title": "Position by lap"
+        }
+    )
 
 
 def explain_position_history(rows, e):

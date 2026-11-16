@@ -151,6 +151,17 @@ async def delete_replay(replay_id: str):
     return {'stopped': replay_id}
 
 
+@router.get('/postrace-analysis')
+async def get_postrace_analysis(replay_id: str | None = Query(None)):
+    from backend.analytics_service import AnalyticsUnavailable, get_analytics
+    try:
+        return await get_analytics().postrace_analysis(replay_id)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
+    except AnalyticsUnavailable as exc:
+        raise HTTPException(409, str(exc))
+
+
 @router.get('/analytics')
 async def get_analytics(replay_id: str | None = Query(None)):
     """Python rule-based pace/pit anomalies from released events only (see REPLAY_LEAKS.md)."""

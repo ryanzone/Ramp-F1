@@ -161,6 +161,93 @@ class AnalyticsService:
         history.append(item)
         del history[:-HISTORY_PER_REPLAY]
 
+    # ---- post-race dashboard (isolated from live chart/question intents) -------------------------
+    async def postrace_analysis(self, replay_id: str | None) -> dict:
+        service = self._replays()
+        entry = await service.resolve(replay_id)
+        service.sync(entry)
+        if not entry.state.clock.finished:
+            raise ValueError('Post-race analysis is available only after the replay has finished.')
+        session_id = entry.state.timeline.meta.get('db_session_id')
+        if session_id is None:
+            raise AnalyticsUnavailable('Post-race SQL analysis requires a database-backed replay.')
+
+        # The replay clock is at the end of the timeline, so these replay.* views expose
+        # the complete race while preserving the same session/time isolation as Pit Wall.
+        at = entry.state.clock.now
+        catalog = await asyncio.to_thread(self.executor.catalog)
+        definitions = {
+            'pace': (
+                """WITH base AS (
+                       SELECT d.driver_code, d.driver_name, d.team_name,
+                              l.lap_number, l.lap_time_seconds
+                       FROM laps l
+                       JOIN drivers d ON d.session_driver_id = l.session_driver_id
+                       WHERE l.is_valid AND l.lap_time_seconds IS NOT NULL
+                   ), best AS (
+                       SELECT *, MIN(lap_time_seconds) OVER (PARTITION BY driver_code) AS best_lap
+                       FROM base
+                   ), clean AS (
+                       SELECT * FROM best WHERE lap_time_seconds <= best_lap * 1.07
+                   )
+                   SELECT driver_code, driver_name, team_name,
+                          COUNT(*) AS laps_used,
+                          ROUND(AVG(lap_time_seconds)::numeric, 3) AS avg_lap
+                   FROM clean
+                   GROUP BY driver_code, driver_name, team_name
+                   ORDER BY avg_lap, driver_code""",
+                {'type': 'bar', 'x': 'driver_code', 'y': ['avg_lap'], 'title': 'Average clean lap (s)'},
+            ),
+            'positions': (
+                """SELECT d.driver_code, l.lap_number,
+                          (SELECT p.position FROM positions p
+                           WHERE p.session_driver_id = l.session_driver_id
+                             AND p.position IS NOT NULL
+                             AND p.recorded_at <= l.lap_end_at
+                           ORDER BY p.recorded_at DESC LIMIT 1) AS position
+                   FROM laps l
+                   JOIN drivers d ON d.session_driver_id = l.session_driver_id
+                   WHERE l.lap_end_at IS NOT NULL
+                   ORDER BY l.lap_number, d.driver_code""",
+                {'type': 'position_lines', 'x': 'lap_number', 'series': 'driver_code', 'y': 'position',
+                 'title': 'Position by lap — full grid'},
+            ),
+            'stints': (
+                """SELECT d.driver_code, d.team_name, ts.stint_number, ts.compound, ts.start_lap,
+                          COALESCE(
+                              ts.end_lap,
+                              (SELECT MAX(l.lap_number) FROM laps l
+                               WHERE l.session_driver_id = ts.session_driver_id)
+                          ) AS last_lap,
+                          CASE WHEN ts.end_lap IS NULL THEN 'open at race end' ELSE 'finished' END AS status,
+                          GREATEST(
+                              COALESCE(
+                                  ts.end_lap,
+                                  (SELECT MAX(l.lap_number) FROM laps l
+                                   WHERE l.session_driver_id = ts.session_driver_id)
+                              ) - ts.start_lap + 1,
+                              0
+                          ) AS laps_completed
+                   FROM tyre_stints ts
+                   JOIN drivers d ON d.session_driver_id = ts.session_driver_id
+                   ORDER BY d.team_name, d.driver_code, ts.stint_number""",
+                {'type': 'tyre_stints', 'title': 'Tyre stints — full grid'},
+            ),
+                    }
+        output = {}
+        for key, (sql, chart) in definitions.items():
+            query = validate(sql, catalog)
+            result = await asyncio.to_thread(self.executor.run, query, {}, session_id, at, row_limit=5000)
+            output[key] = {
+                'status': 'ok', 'title': chart.get('title'),
+                'answer': f"{len(result.rows)} rows returned.",
+                'columns': result.columns, 'rows': result.rows,
+                'row_count': len(result.rows), 'truncated': result.truncated,
+                'chart': chart, 'sql': pretty_sql(sql), 'elapsed_ms': result.elapsed_ms,
+            }
+        return {'replay_id': entry.state.id, 'current_lap': entry.state.current_lap,
+                'total_laps': entry.state.total_laps, 'charts': output}
+
     # ---- history / explain / intents -------------------------------------------------------------
     def history(self, replay_id: str) -> list[dict]:
         return [{k: v for k, v in h.items() if k != 'rows'} for h in reversed(self._history.get(replay_id, []))]
