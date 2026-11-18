@@ -12,7 +12,7 @@ WORD_NUMBERS = {w: i for i, w in enumerate(
     'zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen twenty'.split())}
 WORD_NUMBERS['twenty'] = 20
 # Three-letter driver codes that are ordinary English words: only accepted when written in capitals.
-AMBIGUOUS_CODES = {'per', 'law', 'gas', 'had', 'bot', 'col', 'ant', 'ham', 'bea', 'lin', 'sai', 'bor'}
+AMBIGUOUS_CODES = {'per', 'law', 'gas', 'had', 'bot', 'col', 'ant', 'ham', 'bea', 'lin', 'sai', 'bor', 'nor'}
 ORDINALS = {'first': 0, '1st': 0, 'second': 1, '2nd': 1, 'runner-up': 1, 'runner up': 1, 'runnerup': 1,
             'third': 2, '3rd': 2, 'fourth': 3, '4th': 3, 'fifth': 4, '5th': 4}
 ORDINAL_RE = re.compile(r'\b(first|second|third|fourth|fifth|1st|2nd|3rd|4th|5th|runner[- ]?up)\b')

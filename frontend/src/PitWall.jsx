@@ -7,10 +7,10 @@ const QUESTION_GROUPS = [
     questions: [
       "Who is leading?",
       "Who has the best race pace?",
-      "Compare the fastest drivers",
+      "Which driver has the strongest pace over the last five laps?",
       "Which driver has been most consistent?",
       "Who had the fastest lap?",
-      "Who has improved their pace the most?",
+      "Identify drivers losing significant time",
     ],
   },
   {
@@ -20,8 +20,8 @@ const QUESTION_GROUPS = [
       "Who has the highest tyre degradation?",
       "Compare tyre strategies between constructors",
       "Which drivers could benefit from an undercut?",
-      "Who is managing their tyres best?",
-      "Compare the tyre stints",
+      "Which drivers are currently running on hard tyres?",
+      "Show the tyre stints",
     ],
   },
   {
@@ -30,7 +30,7 @@ const QUESTION_GROUPS = [
       "Which team has the fastest average pit stops?",
       "How many pit stops has each driver completed?",
       "Analyse the time lost during pit stops",
-      "Which driver has had the most pit stops?",
+      "Which driver lost the most time in the pits?",
     ],
   },
   {
@@ -49,7 +49,7 @@ const QUESTION_GROUPS = [
       "Who has been penalised?",
       "Why was the driver penalised?",
       "What is the race status?",
-      "Show the race-control events",
+      "What happened in the last 10 minutes?",
     ],
   },
 ];
@@ -58,29 +58,27 @@ const POST_RACE_GROUPS = [
   {
     title: "Race review",
     questions: [
-      "Give me a complete race summary",
       "Show the final standings",
-      "Who had the strongest race overall?",
-      "Who was the biggest overperformer?",
-      "Who was the biggest underperformer?",
+      "Who had the fastest lap?",
+      "Who gained the most positions?",
+      "Who lost the most positions?",
     ],
   },
   {
     title: "Pace analysis",
     questions: [
-      "Compare all drivers by average race pace",
+      "Who has the best race pace?",
       "Rank the drivers by consistency",
-      "Who had the fastest stint?",
-      "Which driver had the strongest second half?",
+      "Which driver has the strongest pace over the last five laps?",
     ],
   },
   {
     title: "Tyres & pit strategy",
     questions: [
-      "Analyse every driver's tyre strategy",
-      "Which team executed the best strategy?",
-      "Compare the strategies of the top teams",
-      "Who benefited most from an undercut?",
+      "Show the tyre stints",
+      "Compare tyre strategies between constructors",
+      "Which team has the fastest average pit stops?",
+      "How many pit stops has each driver completed?",
       "Which driver lost the most time in the pits?",
     ],
   },
@@ -88,10 +86,9 @@ const POST_RACE_GROUPS = [
     title: "Positions & incidents",
     questions: [
       "Analyse position changes throughout the race",
-      "Who made the biggest recovery drive?",
-      "Who spent the most laps in the lead?",
-      "Summarise the major race incidents",
-      "How did penalties affect the final result?",
+      "Who has been penalised?",
+      "What is the race status?",
+      "What happened in the last 10 minutes?",
     ],
   },
 ];
@@ -115,13 +112,13 @@ export default function PitWall({ replay, analytics, onShowSql }) {
   const [showQuestionBank, setShowQuestionBank] = useState(false);
   const finished = replay.server?.finished === true;
   const groups = finished ? POST_RACE_GROUPS : QUESTION_GROUPS;
-  const [openGroup, setOpenGroup] = useState(groups[0].title);
+  // Which question group is open; resets when the race finishes (adjusted during render, not in an effect).
+  const [groupState, setGroupState] = useState({ finished, open: groups[0].title });
+  if (groupState.finished !== finished) setGroupState({ finished, open: groups[0].title });
+  const openGroup = groupState.open;
+  const setOpenGroup = (next) => setGroupState((s) => ({ ...s, open: typeof next === "function" ? next(s.open) : next }));
   const thread = useRef(null);
   const last = [...messages].reverse().find((m) => m.role === "analyst");
-
-  useEffect(() => {
-    setOpenGroup(groups[0].title);
-  }, [finished]);
 
   useEffect(() => {
     if (thread.current) thread.current.scrollTop = thread.current.scrollHeight;
@@ -137,7 +134,7 @@ export default function PitWall({ replay, analytics, onShowSql }) {
   const suggestions = useMemo(() => {
     if (last) return FOLLOW_UPS[last.result.intent] || DEFAULT_FOLLOW_UPS;
     return finished
-      ? ["Give me a complete race summary", "Analyse every driver's tyre strategy", "Show the final standings"]
+      ? ["Show the final standings", "Show the tyre stints", "Who had the fastest lap?"]
       : ["Who is leading?", "Who has the best race pace?", "Which drivers have not pitted yet?"];
   }, [last, finished]);
 

@@ -75,7 +75,21 @@ export function useReplay() {
       };
       socket.onclose = () => {
         dispatch({ type: "connected", value: false });
-        if (!closed) retry = setTimeout(open, Math.min(15000, 1000 * 2 ** failures++));
+        if (closed) return;
+        // Before retrying, make sure the replay still exists (the server was restarted or purged it);
+        // a rejected handshake looks like any other drop to the browser, so ask over HTTP.
+        retry = setTimeout(async () => {
+          try {
+            await replayApi.state(replayId);
+          } catch (err) {
+            if (err.status === 404) {
+              closed = true;
+              dispatch({ type: "failed", message: "This replay no longer exists on the server. Press Stop and start it again." });
+              return;
+            }
+          }
+          if (!closed) open();
+        }, Math.min(15000, 1000 * 2 ** failures++));
       };
     };
     open();

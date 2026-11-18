@@ -6,7 +6,6 @@ import PitWall from "../PitWall.jsx";
 import { RaceOrderCard, SectorCard, StintCard, TrackCard } from "../BroadcastStage.jsx";
 import { formatClock, parseClock, raceStatus, sectorBoard, standings } from "../replayModel.js";
 import VisualAnalytics from "../VisualAnalytics.jsx";
-import PostRaceAnalysis from "../PostRaceAnalysis.jsx";
 const SPEEDS = [1, 2, 5, 10];
 
 const load = (key, fallback) => {

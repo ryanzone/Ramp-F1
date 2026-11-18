@@ -244,6 +244,10 @@ def main():
                 if session_driver_id is None or lap_number is None:
                     continue
 
+                # OpenF1 laps carry no `is_valid`; derive pace eligibility the same way import_f1.py does.
+                duration = lap.get("lap_duration")
+                is_valid = bool(duration and duration > 0 and not lap.get("is_pit_out_lap"))
+
                 cur.execute(
                     """
                     INSERT INTO laps (
@@ -270,7 +274,7 @@ def main():
                         lap.get("duration_sector_2"),
                         lap.get("duration_sector_3"),
                         lap.get("st_speed"),
-                        lap["is_valid"],
+                        is_valid,
                     )
                 )
                 inserted += 1

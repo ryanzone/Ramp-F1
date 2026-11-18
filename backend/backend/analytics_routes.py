@@ -1,6 +1,9 @@
 """Analytics endpoints: natural-language questions answered by real SQL at the replay time."""
 from __future__ import annotations
 
+import asyncio
+import logging
+
 from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
@@ -9,6 +12,7 @@ from backend.intent_parser import MAX_QUESTION_LENGTH
 from backend.query_executor import ExecutorUnavailable, QueryError, QueryTimeout
 from backend.replay_routes import ALLOWED_ORIGINS
 
+log = logging.getLogger(__name__)
 router = APIRouter(prefix='/api/analytics', tags=['analytics'])
 ws_router = APIRouter(tags=['analytics'])
 
@@ -76,10 +80,19 @@ async def ws_analytics(ws: WebSocket):
     await ws.accept()
     try:
         while True:
-            request = await ws.receive_json()
+            try:
+                request = await ws.receive_json()
+            except ValueError:                        # not valid JSON
+                request = None
+            if not isinstance(request, dict):
+                await ws.send_json({'type': 'error', 'status': 422, 'message': 'send a JSON object with a question'})
+                continue
             question, replay_id = request.get('question'), request.get('replay_id')
             if not isinstance(question, str) or not question.strip() or len(question) > MAX_QUESTION_LENGTH:
                 await ws.send_json({'type': 'error', 'status': 422, 'message': 'question must be 1-500 characters'})
+                continue
+            if replay_id is not None and not isinstance(replay_id, str):
+                await ws.send_json({'type': 'error', 'status': 422, 'message': 'replay_id must be a string'})
                 continue
             stages: list[str] = []
             try:
@@ -89,5 +102,10 @@ async def ws_analytics(ws: WebSocket):
                 await ws.send_json({'type': 'result', 'result': result})
             except HTTPException as exc:
                 await ws.send_json({'type': 'error', 'status': exc.status_code, 'message': exc.detail})
+            except (WebSocketDisconnect, asyncio.CancelledError):
+                raise
+            except Exception:                         # e.g. a template bug: tell the client instead of dropping the socket
+                log.exception('analytics question failed: %r', question)
+                await ws.send_json({'type': 'error', 'status': 500, 'message': 'The analyst hit an internal error.'})
     except (WebSocketDisconnect, RuntimeError):
         pass

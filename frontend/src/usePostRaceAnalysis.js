@@ -2,22 +2,23 @@ import { useEffect, useState } from "react";
 import { replayApi } from "./api.js";
 
 export function usePostRaceAnalysis(replayId, finished) {
-  const [state, setState] = useState({ replayId: null, data: null, loading: false, error: null });
+  const [result, setResult] = useState({ replayId: null, data: null, error: null });
 
   useEffect(() => {
     if (!replayId || !finished) return undefined;
     let cancelled = false;
-    setState({ replayId, data: null, loading: true, error: null });
     replayApi.postRaceAnalysis(replayId)
       .then((data) => {
-        if (!cancelled) setState({ replayId, data, loading: false, error: null });
+        if (!cancelled) setResult({ replayId, data, error: null });
       })
       .catch((error) => {
-        if (!cancelled) setState({ replayId, data: null, loading: false, error: error.message });
+        if (!cancelled) setResult({ replayId, data: null, error: error.message });
       });
     return () => { cancelled = true; };
   }, [replayId, finished]);
 
-  if (state.replayId !== replayId) return { data: null, loading: false, error: null };
-  return state;
+  if (!replayId || !finished) return { data: null, loading: false, error: null };
+  // No answer for this replay yet: still loading (derived, so no setState inside the effect).
+  if (result.replayId !== replayId) return { data: null, loading: true, error: null };
+  return { data: result.data, loading: false, error: result.error };
 }

@@ -1,11 +1,12 @@
 # Role A demo — ready to run
 
-Run all commands from the repository root (the folder containing F1_Schema.sql).
+Create the virtual environment and install from the repository root (the folder containing F1_Schema.sql), then start the server from the `backend` folder.
 
 ```powershell
 py -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r backend/requirements.txt
-.\.venv\Scripts\python.exe -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
+cd backend
+..\.venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 
 Open http://127.0.0.1:8000/demo and select a driver. Open http://127.0.0.1:8000/docs to demonstrate the JSON endpoints under /api/demo. No database or internet is required for the included snapshot. Existing /api/races, /api/laps, etc. still use your team's PostgreSQL database. The React prototype is unchanged; this small demo page demonstrates A's real pipeline without claiming the rest of the dashboard is connected.

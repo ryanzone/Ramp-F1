@@ -61,7 +61,6 @@ class AnalyticsService:
         self._history: dict[str, list[dict]] = {}
         self._cache: OrderedDict[tuple, QueryResult] = OrderedDict()
         self._rosters: dict[int, list[dict]] = {}
-        self._validated: dict[str, Validated] = {}
 
     # ---- helpers -------------------------------------------------------------------------
     def _context(self, replay_id: str) -> Context:
@@ -146,7 +145,6 @@ class AnalyticsService:
                   'cached': cached, 'chart': built.chart, 'features': describe_features(query.features),
                   'tables': sorted(query.tables), 'how': intent.how}
         if remember:                                  # background chart queries must not change the conversation
-            self._validated[result['id']] = query
             subject = subject_from_rows(rows) or (entities.drivers[0]['driver_code'] if entities.drivers else None)
             ctx.last_intent, ctx.last_rows = intent.name, rows
             ctx.subject = next((d for d in roster if d['driver_code'] == subject), ctx.subject)

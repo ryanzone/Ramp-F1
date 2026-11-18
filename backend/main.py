@@ -255,6 +255,9 @@ def race_control(
 from backend.replay_routes import router as replay_router, ws_router as replay_ws_router  # noqa: E402
 from backend.analytics_routes import router as analytics_router, ws_router as analytics_ws_router  # noqa: E402
 
+from backend.demo_routes import router as demo_router  # noqa: E402
+
+app.include_router(demo_router)
 app.include_router(replay_router)
 app.include_router(replay_ws_router)
 app.include_router(analytics_router)

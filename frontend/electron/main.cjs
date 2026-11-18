@@ -21,9 +21,16 @@ let hit = false; // pointer is over a HUD panel
 function serveDist() {
   return new Promise((resolve, reject) => {
     server = http.createServer((req, res) => {
-      const rel = decodeURIComponent(req.url.split("?")[0]);
+      let rel;
+      try {
+        rel = decodeURIComponent(req.url.split("?")[0]);
+      } catch {
+        res.writeHead(400).end(); // malformed %-escape: never let it throw out of the main process
+        return;
+      }
       const file = path.normalize(path.join(DIST, rel === "/" ? "overlay.html" : rel));
-      if (!file.startsWith(DIST) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
+      const inside = file.startsWith(DIST + path.sep); // not just a prefix: "dist-other" must not match
+      if (!inside || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
         res.writeHead(404).end();
         return;
       }

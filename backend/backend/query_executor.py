@@ -13,6 +13,7 @@ from __future__ import annotations
 import math
 import os
 import queue
+import threading
 import time
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -74,6 +75,7 @@ class QueryExecutor:
         self._pool: queue.Queue = queue.Queue(maxsize=pool_size)
         self._pool_size = pool_size
         self._created = 0
+        self._lock = threading.Lock()
         self._catalog: dict[str, dict[str, str]] | None = None
 
     # ---- connections ---------------------------------------------------------------
@@ -97,14 +99,21 @@ class QueryExecutor:
         try:
             return self._pool.get_nowait()
         except queue.Empty:
-            if self._created < self._pool_size:
-                self._created += 1
+            with self._lock:                          # called from worker threads (asyncio.to_thread)
+                may_create = self._created < self._pool_size
+                if may_create:
+                    self._created += 1
+            if may_create:
                 try:
                     return self._connect()
                 except Exception:
-                    self._created -= 1
+                    with self._lock:
+                        self._created -= 1
                     raise
-            return self._pool.get(timeout=10)
+            try:
+                return self._pool.get(timeout=10)
+            except queue.Empty:
+                raise ExecutorUnavailable('all database connections are busy; try again') from None
 
     def _release(self, conn, broken: bool) -> None:
         if broken or conn.closed:
@@ -112,7 +121,8 @@ class QueryExecutor:
                 conn.close()
             except Exception:
                 pass
-            self._created -= 1
+            with self._lock:
+                self._created -= 1
         else:
             self._pool.put(conn)
 
@@ -122,7 +132,8 @@ class QueryExecutor:
                 self._pool.get_nowait().close()
             except Exception:
                 pass
-        self._created = 0
+        with self._lock:
+            self._created = 0
 
     # ---- catalog -----------------------------------------------------------------------
     def catalog(self, refresh: bool = False) -> dict[str, dict[str, str]]:
